@@ -31,6 +31,9 @@ export interface Rom {
   systemManual?: boolean;
   relativePath?: string | null;
   debugFile?: string | null;
+  source?: string;
+  stage?: string | null;
+  bytesPerSecond?: number | null;
 }
 
 export interface BrowserStatus {

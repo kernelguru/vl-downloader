@@ -61,6 +61,21 @@
         <div class="control"><button class="button is-small" (click)="editingSystem = false">Cancel</button></div>
       </div>
 
+      <ng-container *ngIf="rom.status === trackStatusEnum.Downloading && rom.stage; else regularProgress">
+        <p class="mb-1">
+          <span class="tag is-info is-light mr-2">
+            <i class="fa-solid" [ngClass]="stageIcon"></i>&nbsp;{{ stageLabel }}
+          </span>
+          <ng-container *ngIf="rom.stage === 'downloading'">
+            {{ (rom.receivedBytes || 0) | filesize }}
+            <span *ngIf="rom.bytesPerSecond" class="has-text-grey">· {{ rom.bytesPerSecond | filesize }}/s</span>
+          </ng-container>
+          <ng-container *ngIf="rom.stage !== 'downloading' && rom.totalBytes">{{ rom.totalBytes | filesize }}</ng-container>
+        </p>
+        <!-- no value = animated bar; Firefox does not expose the total size -->
+        <progress class="progress is-small is-info" max="100"></progress>
+      </ng-container>
+      <ng-template #regularProgress>
       <ng-container *ngIf="rom.status === trackStatusEnum.Downloading || rom.status === trackStatusEnum.Completed">
         {{ (rom.receivedBytes || 0) | filesize }} / {{ (rom.totalBytes || 0) | filesize }}
         <progress class="progress"
@@ -70,6 +85,7 @@
           {{ percentage }}%
         </progress>
       </ng-container>
+      </ng-template>
       <ng-container *ngIf="rom.status === trackStatusEnum.Error">
         <div class="notification is-danger">
           <i class="fa-solid fa-circle-exclamation"></i>

@@ -31,6 +31,22 @@ export class RomComponent {
     return Math.min(100, ((this.rom.receivedBytes ?? 0) * 100) / total).toFixed(2);
   }
 
+  private static readonly STAGE_LABELS: Record<string, string> = {
+    downloading: 'Downloading in browser', extracting: 'Extracting', sorting: 'Sorting',
+  };
+  private static readonly STAGE_ICONS: Record<string, string> = {
+    downloading: 'fa-download', extracting: 'fa-box-open', sorting: 'fa-folder-tree',
+  };
+
+  get stageLabel(): string {
+    const stage = this.rom.stage ?? '';
+    return RomComponent.STAGE_LABELS[stage] ?? stage;
+  }
+
+  get stageIcon(): string {
+    return RomComponent.STAGE_ICONS[this.rom.stage ?? ''] ?? 'fa-spinner';
+  }
+
   get systemName(): string | undefined {
     return this.romService.systemName(this.rom.system);
   }
