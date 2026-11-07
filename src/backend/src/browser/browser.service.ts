@@ -1,4 +1,4 @@
-import {Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy} from '@nestjs/common';
+import {BadRequestException, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy} from '@nestjs/common';
 import {ChildProcess, spawn, spawnSync} from 'child_process';
 import * as fs from 'fs';
 import {join} from 'path';
@@ -9,6 +9,12 @@ const VNC_PORT = Number(process.env.BROWSER_VNC_PORT) || 5900;
 const DISPLAY = process.env.BROWSER_DISPLAY || ':99';
 const NOVNC_WEB = process.env.NOVNC_PATH || '/opt/novnc';
 const START_URL = process.env.BROWSER_START_URL || 'https://vimm.net/vault';
+
+/** Only Vimm's Lair pages can be opened from outside (share sheet / API). */
+export const OPEN_URL_REGEXP = /^https:\/\/(www\.)?vimm\.net(\/[^\s]*)?$/i;
+
+/** noVNC page in full-screen mode, resizing the remote screen to the device. */
+export const NOVNC_CLIENT_URL = '/browser/vnc.html?autoconnect=true&reconnect=true&resize=remote&show_dot=true&path=browser/websockify';
 
 export interface BrowserStatus {
     enabled: boolean;
@@ -29,7 +35,8 @@ interface ManagedProcess {
 }
 
 /**
- * A real Firefox on a virtual display (Xvfb), shown in the web UI through x11vnc + websockify/noVNC.
+ * A real Firefox on a virtual display (TigerVNC Xvnc), shown in the web UI through websockify/noVNC.
+ * noVNC can resize the display to the viewer (resize=remote); the Firefox window is kept fitted to it.
  * The user browses Vimm's Lair themselves; downloads go to the inbox folder and are processed by InboxService.
  *
  * Env: BROWSER_ENABLED (default true), BROWSER_RESOLUTION (default 1280x900), BROWSER_START_URL
@@ -44,6 +51,10 @@ export class BrowserService implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly processes: ManagedProcess[] = [];
     private stopping = false;
     private message?: string;
+    private fitTimer?: NodeJS.Timeout;
+    private lastGeometry = '';
+    /** URL Firefox is (re)started with when it is not running yet */
+    private nextUrl = START_URL;
 
     constructor(private readonly utils: UtilsService) {}
 
@@ -65,7 +76,7 @@ export class BrowserService implements OnApplicationBootstrap, OnModuleDestroy {
         if (!this.enabled) {
             return;
         }
-        const missing = ['Xvfb', 'x11vnc', 'websockify', 'firefox'].filter(cmd => !this.hasCommand(cmd));
+        const missing = ['Xvnc', 'websockify', 'firefox', 'xdotool'].filter(cmd => !this.hasCommand(cmd));
         if (missing.length || !fs.existsSync(join(NOVNC_WEB, 'vnc.html'))) {
             this.message = `Browser not available, missing: ${[...missing, ...(fs.existsSync(join(NOVNC_WEB, 'vnc.html')) ? [] : ['noVNC'])].join(', ')}`;
             this.logger.warn(this.message);
@@ -82,17 +93,19 @@ export class BrowserService implements OnApplicationBootstrap, OnModuleDestroy {
 
         this.processes.push(
             {
-                name: 'Xvfb', command: 'Xvfb', restarts: 0, lastStart: 0,
-                args: () => [DISPLAY, '-screen', '0', `${width}x${height}x24`, '-nolisten', 'tcp', '-ac'],
+                // X server + VNC server in one; accepts screen size changes from noVNC (resize=remote)
+                name: 'Xvnc', command: 'Xvnc', restarts: 0, lastStart: 0,
+                args: () => [DISPLAY, '-geometry', `${width}x${height}`, '-depth', '24', '-rfbport', String(VNC_PORT),
+                    '-localhost', '-SecurityTypes', 'None', '-AlwaysShared', '-AcceptSetDesktopSize', '-nolisten', 'tcp'],
             },
             {
                 name: 'firefox', command: 'firefox', restarts: 0, lastStart: 0, env: {...displayEnv, MOZ_CRASHREPORTER_DISABLE: '1'},
-                args: () => ['--no-remote', '--profile', this.profileDir, '--width', width, '--height', height, START_URL],
-            },
-            {
-                name: 'x11vnc', command: 'x11vnc', restarts: 0, lastStart: 0, env: displayEnv,
-                args: () => ['-display', DISPLAY, '-forever', '-shared', '-nopw', '-localhost', '-rfbport', String(VNC_PORT),
-                    '-quiet', '-noxdamage', '-cursor', 'arrow'],
+                args: () => {
+                    const [w, h] = (this.lastGeometry || `${width}x${height}`).split('x');
+                    const url = this.nextUrl;
+                    this.nextUrl = START_URL;
+                    return ['--no-remote', '--profile', this.profileDir, '--width', w, '--height', h, url];
+                },
             },
             {
                 name: 'websockify', command: 'websockify', restarts: 0, lastStart: 0,
@@ -103,14 +116,44 @@ export class BrowserService implements OnApplicationBootstrap, OnModuleDestroy {
         this.start(this.processes[0]);
         await this.waitFor(() => fs.existsSync(`/tmp/.X11-unix/X${DISPLAY.replace(':', '')}`), 10_000);
         this.processes.slice(1).forEach(p => this.start(p));
+        this.fitTimer = setInterval(() => this.fitWindow(), 1500);
         this.logger.log(`Browser started (${this.resolution}), downloads go to ${inbox}`);
     }
 
     onModuleDestroy(): void {
         this.stopping = true;
+        clearInterval(this.fitTimer);
         for (const p of [...this.processes].reverse()) {
             p.child?.kill('SIGTERM');
         }
+    }
+
+    /**
+     * Open a Vimm's Lair page in the running Firefox (address bar via xdotool, like a user typing it).
+     * If Firefox is not running, it is started with that page.
+     */
+    async openUrl(url: string): Promise<BrowserStatus> {
+        const trimmed = (url ?? '').trim();
+        if (!OPEN_URL_REGEXP.test(trimmed)) {
+            throw new BadRequestException('Only https://vimm.net/… pages can be opened');
+        }
+        if (!this.enabled || !this.processes.length) {
+            throw new BadRequestException(this.message || 'Browser is not enabled');
+        }
+        const window = this.firefoxWindow();
+        const ok = window && await this.xdotool([
+            'windowactivate', '--sync', window,
+            'key', '--clearmodifiers', 'ctrl+l',
+            'sleep', '0.2',
+            'type', '--delay', '1', trimmed,
+        ]) && await this.xdotool(['key', '--clearmodifiers', 'Return']);
+        if (!ok) {
+            this.logger.warn('Could not type into Firefox, restarting it with the page');
+            this.nextUrl = trimmed;
+            this.restartFirefox();
+        }
+        this.logger.log(`Opened ${trimmed} in the browser`);
+        return this.status();
     }
 
     /** Restart Firefox (e.g. after the user closed its window or it hangs). */
@@ -145,6 +188,48 @@ export class BrowserService implements OnApplicationBootstrap, OnModuleDestroy {
                 this.removeStaleLocks();
             }
             setTimeout(() => !this.stopping && this.start(p), delay);
+        });
+    }
+
+    /** Keep the Firefox window as large as the (resizable) screen; there is no window manager. */
+    private fitWindow(): void {
+        const geometry = spawnSync('xdotool', ['getdisplaygeometry'], {env: {...process.env, DISPLAY}, encoding: 'utf8'});
+        const size = geometry.status === 0 ? geometry.stdout.trim().replace(' ', 'x') : '';
+        if (!/^\d+x\d+$/.test(size)) {
+            return;
+        }
+        const window = this.firefoxWindow();
+        if (!window || (size === this.lastGeometry && this.fittedWindow === window)) {
+            return;
+        }
+        const [w, h] = size.split('x');
+        const result = spawnSync('xdotool', ['windowmove', window, '0', '0', 'windowsize', window, w, h],
+            {env: {...process.env, DISPLAY}, stdio: 'ignore'});
+        if (result.status === 0) {
+            this.lastGeometry = size;
+            this.fittedWindow = window;
+        }
+    }
+
+    private fittedWindow = '';
+
+    /** X window id of the main Firefox window (largest visible one). */
+    private firefoxWindow(): string | undefined {
+        const search = spawnSync('xdotool', ['search', '--onlyvisible', '--class', 'firefox'],
+            {env: {...process.env, DISPLAY}, encoding: 'utf8'});
+        const ids = search.status === 0 ? search.stdout.split('\n').map(l => l.trim()).filter(Boolean) : [];
+        return ids[ids.length - 1];
+    }
+
+    private xdotool(args: string[]): Promise<boolean> {
+        return new Promise(resolve => {
+            const child = spawn('xdotool', args, {env: {...process.env, DISPLAY}, stdio: 'ignore'});
+            const timer = setTimeout(() => child.kill('SIGKILL'), 10_000);
+            child.on('error', () => resolve(false));
+            child.on('exit', code => {
+                clearTimeout(timer);
+                resolve(code === 0);
+            });
         });
     }
 

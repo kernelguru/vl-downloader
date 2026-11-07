@@ -45,8 +45,8 @@ RUN apk add --no-cache \
     redis \
     7zip \
     firefox \
-    xvfb \
-    x11vnc \
+    tigervnc \
+    xdotool \
     websockify
 
 COPY --from=novnc /opt/novnc /opt/novnc

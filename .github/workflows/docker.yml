@@ -65,6 +65,14 @@ jobs:
             http://localhost:3000/browser/websockify || true)
           echo "upgrade: $code"; test "$code" = "101"
 
+          echo "--- open a page from outside (share sheet endpoint)"
+          code=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "http://localhost:3000/api/library/browser/open?url=https%3A%2F%2Fvimm.net%2Fvault%2F")
+          echo "open: $code"; case "$code" in "302 "*vnc.html*) ;; *) exit 1 ;; esac
+          code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:3000/api/library/browser/open?url=https%3A%2F%2Fexample.com")
+          echo "foreign url: $code"; test "$code" = "400"
+          sleep 5
+          docker exec -e DISPLAY=:99 vl sh -c 'xdotool getdisplaygeometry; for w in $(xdotool search --onlyvisible --class firefox); do xdotool getwindowname $w; xdotool getwindowgeometry $w; done'
+
           echo "--- frontend"
           curl -fsS http://localhost:3000/ | grep -qi '<app-root'
 
