@@ -5,6 +5,8 @@ import {resolve} from 'path';
 import * as fs from 'fs';
 import * as net from 'net';
 import {spawn} from 'child_process';
+import {attachBrowserWebSocketProxy, BROWSER_PREFIX, browserHttpProxy} from './browser/proxy';
+import {NOVNC_PORT} from './browser/browser.service';
 
 const logger = new Logger('Bootstrap');
 
@@ -67,6 +69,9 @@ async function bootstrap() {
     const app = await NestFactory.create(AppModule);
     app.setGlobalPrefix('api');
     app.enableShutdownHooks();
+    // built-in browser (noVNC) on the same port as the app
+    app.use(BROWSER_PREFIX, browserHttpProxy(NOVNC_PORT));
+    attachBrowserWebSocketProxy(app.getHttpServer(), NOVNC_PORT);
     await app.listen(process.env.PORT ?? 3000);
 }
 

@@ -1,13 +1,38 @@
-import {Controller, Get, ParseBoolPipe, Post, Query} from '@nestjs/common';
+import {Body, Controller, Get, ParseBoolPipe, Post, Query} from '@nestjs/common';
+import {InboxService, InboxStatus} from './inbox.service';
+import {BrowserService, BrowserStatus} from '../browser/browser.service';
 import {LibraryService} from './library.service';
 import {RommService, RommStatus} from './romm.service';
-import {OrganizeReport, RomService} from '../rom/rom.service';
+import {OrganizeReport, QueueStatus, RomService} from '../rom/rom.service';
 
 @Controller('library')
 export class LibraryController {
     constructor(private readonly library: LibraryService,
                 private readonly romm: RommService,
-                private readonly romService: RomService) {}
+                private readonly romService: RomService,
+                private readonly inbox: InboxService,
+                private readonly browser: BrowserService) {}
+
+    @Get('inbox')
+    inboxStatus(): InboxStatus {
+        return this.inbox.status();
+    }
+
+    /** System for files arriving in the inbox; null/empty = detect automatically. */
+    @Post('inbox/system')
+    setInboxSystem(@Body() body: { system?: string | null }): InboxStatus {
+        return this.inbox.setSystem(body?.system);
+    }
+
+    @Get('browser')
+    browserStatus(): BrowserStatus {
+        return this.browser.status();
+    }
+
+    @Post('browser/restart')
+    restartBrowser(): BrowserStatus {
+        return this.browser.restartFirefox();
+    }
 
     /** Systems that can be selected, with the folder they are stored in. */
     @Get('systems')
@@ -26,6 +51,21 @@ export class LibraryController {
         @Query('online', new ParseBoolPipe({optional: true})) online?: boolean,
     ): Promise<OrganizeReport> {
         return this.romService.organize({dryRun, online});
+    }
+
+    @Get('queue')
+    queueStatus(): QueueStatus {
+        return this.romService.getQueueStatus();
+    }
+
+    @Post('queue/resume')
+    resumeQueue(): Promise<QueueStatus> {
+        return this.romService.resumeQueue();
+    }
+
+    @Post('queue/pause')
+    pauseQueue(): Promise<QueueStatus> {
+        return this.romService.pauseQueue('Paused manually');
     }
 
     @Get('romm')

@@ -30,6 +30,28 @@ export interface Rom {
   system?: string | null;
   systemManual?: boolean;
   relativePath?: string | null;
+  debugFile?: string | null;
+}
+
+export interface BrowserStatus {
+  enabled: boolean;
+  running: boolean;
+  resolution: string;
+  inbox: string;
+  message?: string;
+}
+
+export interface InboxStatus {
+  path: string;
+  system: string | null;
+  extract: boolean;
+  pending: string[];
+}
+
+export interface QueueStatus {
+  paused: boolean;
+  reason?: string;
+  since?: string;
 }
 
 export interface SystemOption {
@@ -83,6 +105,9 @@ export class RomService {
   readonly systems$ = new BehaviorSubject<SystemOption[]>([]);
   readonly organizeBySystem$ = new BehaviorSubject<boolean>(true);
   readonly romm$ = new BehaviorSubject<RommStatus>({enabled: false});
+  readonly queue$ = new BehaviorSubject<QueueStatus>({paused: false});
+  readonly browser$ = new BehaviorSubject<BrowserStatus | undefined>(undefined);
+  readonly inbox$ = new BehaviorSubject<InboxStatus | undefined>(undefined);
 
   constructor(
     private readonly http: HttpClient,
@@ -99,6 +124,26 @@ export class RomService {
         this.systems$.next(systems);
       });
     this.refreshRomm();
+    this.http.get<QueueStatus>(`${LIBRARY_ENDPOINT}/queue`).subscribe(status => this.queue$.next(status));
+    this.refreshBrowser();
+  }
+
+  refreshBrowser(): void {
+    this.http.get<BrowserStatus>(`${LIBRARY_ENDPOINT}/browser`).subscribe(status => this.browser$.next(status));
+    this.http.get<InboxStatus>(`${LIBRARY_ENDPOINT}/inbox`).subscribe(status => this.inbox$.next(status));
+  }
+
+  restartBrowser(): void {
+    this.http.post<BrowserStatus>(`${LIBRARY_ENDPOINT}/browser/restart`, null).subscribe(status => this.browser$.next(status));
+  }
+
+  setInboxSystem(system: string | null): void {
+    this.http.post<InboxStatus>(`${LIBRARY_ENDPOINT}/inbox/system`, {system: system || null})
+      .subscribe(status => this.inbox$.next(status));
+  }
+
+  resumeQueue(): void {
+    this.http.post<QueueStatus>(`${LIBRARY_ENDPOINT}/queue/resume`, null).subscribe(status => this.queue$.next(status));
   }
 
   processUrl(url: string, system?: string | null): void {
@@ -148,6 +193,7 @@ export class RomService {
   private initWsConnection(): void {
     this.socket.on(WsOperation.Update, (rom: Rom) => this.store.update(upsertEntities(rom)));
     this.socket.on(WsOperation.Delete, ({id}: {id: number}) => this.store.update(deleteEntities(Number(id))));
+    this.socket.on('queue', (status: QueueStatus) => this.queue$.next(status));
     this.socket.on(WsOperation.New, (playlist: Rom) => this.store.update(upsertEntities(playlist),));
   }
 }

@@ -22,6 +22,7 @@ The project is based on NestJS and Angular.
 
 ### Content
 - [🚀 Installation](#-installation)
+- [🦊 Built-in browser](#-built-in-browser)
 - [🗂️ System folders](#️-system-folders)
 - [🎮 RomM integration](#-romm-integration)
 - [⚙️ Configuration](#️-configuration)
@@ -50,6 +51,33 @@ docker run -d -p 3000:3000 \
   ghcr.io/kernelguru/vl-downloader:latest
 ```
 Queued downloads survive restarts: they are stored in the database and re-queued on start.
+
+# 🦊 Built-in browser
+The image contains a Firefox running on the server (Xvfb + x11vnc + noVNC). Open it from
+**Open browser** in the web UI – also from a phone – browse Vimm's Lair and download as usual.
+You use the site yourself (including any "are you human" check); only the file transfer happens on the server.
+
+Downloads are saved into the inbox (`/vl-downloader/backend/inbox`). As soon as a file is complete it is
+- extracted (`.zip`, `.7z`, `.rar` with 7-Zip; archive deleted afterwards),
+- assigned to a system: file extensions, `.gdi`, or the disc header of `.iso`/`.bin` images
+  (PS1, PS2, PSP, PS3, GameCube, Wii, Saturn, Sega CD, Dreamcast, PC Engine CD, CD-i),
+  or the system you picked in the browser section,
+- moved to `<downloads>/<system>/` (several files such as `.cue` + `.bin` go into one folder per game),
+- and RomM is asked to scan.
+
+Unknown systems stay in the root of the download folder; set the system on the entry and the game is moved.
+The Firefox profile (cookies, settings) lives in `config/firefox`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `BROWSER_ENABLED` | `true` | Start the built-in browser |
+| `BROWSER_RESOLUTION` | `1280x900` | Size of the virtual screen |
+| `BROWSER_START_URL` | `https://vimm.net/vault` | Start page |
+| `INBOX_PATH` | `./inbox` | Download folder of the browser |
+| `EXTRACT_ARCHIVES` | `true` | Extract archives from the inbox |
+| `DELETE_ARCHIVES` | `true` | Delete archives after extracting |
+
+The browser has no password – like the rest of the app, only expose port 3000 in your home network.
 
 # 🗂️ System folders
 Every download is saved into a folder per system, named like the

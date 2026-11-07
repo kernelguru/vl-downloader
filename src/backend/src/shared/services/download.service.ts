@@ -2,7 +2,8 @@ import {Injectable, Logger} from '@nestjs/common';
 import {RomEntity} from "../../rom/rom.entity";
 import puppeteer, {Browser, CDPSession, Page, Protocol} from "puppeteer";
 import {EventEmitter2} from "@nestjs/event-emitter";
-import {basename, dirname, join, resolve} from "path";
+import {basename, join} from "path";
+import {UtilsService} from "./utils.service";
 import * as fs from "fs";
 import {findSystemByName, findSystemByVimmCode, findSystemInTitle, SystemInfo} from "../../library/systems";
 
@@ -83,6 +84,16 @@ const DOWNLOAD_STALL_TIMEOUT_MS = envMs('DOWNLOAD_STALL_TIMEOUT', 180);
 /** Minimum interval between progress updates written to the DB / pushed to the UI. */
 const PROGRESS_THROTTLE_MS = 1000;
 
+export type PageProblem = 'bot-protection' | 'unavailable' | 'rate-limit' | 'redirect' | 'layout' | 'unknown';
+
+/** The Vimm page did not offer a download; carries the reason and the saved page dump. */
+export class DownloadPageError extends Error {
+    constructor(message: string, readonly problem: PageProblem, readonly debugFile?: string) {
+        super(message);
+        this.name = 'DownloadPageError';
+    }
+}
+
 export class DownloadCanceledError extends Error {
     constructor() {
         super('Canceled');
@@ -94,7 +105,8 @@ export class DownloadCanceledError extends Error {
 export class DownloadService {
     private readonly logger = new Logger(DownloadService.name);
 
-    constructor(private readonly eventEmitter: EventEmitter2) {}
+    constructor(private readonly eventEmitter: EventEmitter2,
+                private readonly utils: UtilsService) {}
 
     /**
      * Downloads a single ROM from its Vimm's Lair page.
@@ -283,12 +295,12 @@ export class DownloadService {
         } catch {
             // analysed below
         }
-        const reason = await this.explainMissingButton(page);
-        const dump = await this.saveDebugDump(page, debugName);
-        throw new Error(`Download button not found: ${reason}${dump ? ` (screenshot/HTML: ${dump})` : ''}`);
+        const {problem, reason} = await this.explainMissingButton(page);
+        const debugFile = await this.saveDebugDump(page, debugName);
+        throw new DownloadPageError(`Download button not found: ${reason}`, problem, debugFile);
     }
 
-    private async explainMissingButton(page: Page): Promise<string> {
+    private async explainMissingButton(page: Page): Promise<{ problem: PageProblem; reason: string }> {
         try {
             const {title, text, url, hasForm} = await page.evaluate(() => ({
                 title: document.title,
@@ -298,37 +310,39 @@ export class DownloadService {
             }));
             const lower = text.toLowerCase();
             if (/just a moment|checking your browser|cf-chl|verify you are human|captcha|attention required/.test(lower + title.toLowerCase())) {
-                return `bot protection page ("${title}") – Vimm's Lair blocks the headless browser`;
+                return {problem: 'bot-protection', reason: `bot protection page ("${title}") – Vimm's Lair blocks automated downloads right now`};
             }
             if (/unavailable|not available|no longer available|removed at the request|download disabled/.test(lower)) {
                 const line = text.split('\n').find(l => /unavailable|not available|removed|disabled/i.test(l))?.trim();
-                return `download not available for this title${line ? ` ("${line.slice(0, 160)}")` : ''}`;
+                return {problem: 'unavailable', reason: `download not available for this title${line ? ` ("${line.slice(0, 160)}")` : ''}`};
             }
             if (/too many|rate limit|try again later|slow down/.test(lower)) {
-                return 'Vimm\'s Lair is rate limiting, try again later';
+                return {problem: 'rate-limit', reason: 'Vimm\'s Lair is rate limiting, try again later'};
             }
             if (!/vimm\.net\/vault\//.test(url)) {
-                return `redirected to ${url}`;
+                return {problem: 'redirect', reason: `redirected to ${url}`};
             }
-            return hasForm
-                ? `#dl_form exists but contains no known button – the page layout probably changed (title "${title}")`
-                : `no download form on the page – the page layout probably changed (title "${title}")`;
+            return {
+                problem: 'layout',
+                reason: hasForm
+                    ? `#dl_form exists but contains no known button – the page layout probably changed (title "${title}")`
+                    : `no download form on the page – the page layout probably changed (title "${title}")`,
+            };
         } catch (e) {
-            return `page could not be analysed (${e})`;
+            return {problem: 'unknown', reason: `page could not be analysed (${e})`};
         }
     }
 
-    /** Saves <config>/debug/<name>.png and .html; returns the folder-relative name or undefined. */
+    /** Saves <config>/debug/<name>.png and .html; returns <name> or undefined. */
     private async saveDebugDump(page: Page, debugName?: string): Promise<string | undefined> {
         try {
-            const configDir = dirname(resolve(__dirname, '..', '..', '..', process.env.DB_PATH || './config/db.sqlite'));
-            const dir = join(configDir, 'debug');
+            const dir = this.utils.getDebugFolderPath();
             fs.mkdirSync(dir, {recursive: true});
             const name = `${(debugName || 'download').replace(/[^\w.-]/g, '_')}-${new Date().toISOString().replace(/[:.]/g, '-')}`;
             await page.screenshot({path: join(dir, `${name}.png`) as `${string}.png`, fullPage: true});
             fs.writeFileSync(join(dir, `${name}.html`), await page.content());
             this.logger.warn(`Saved page dump to ${join(dir, name)}.{png,html}`);
-            return `config/debug/${name}`;
+            return name;
         } catch (e) {
             this.logger.warn(`Unable to save debug dump: ${e}`);
             return undefined;

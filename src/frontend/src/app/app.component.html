@@ -10,6 +10,48 @@
 
 <section class="hero">
   <div class="hero-body">
+    <ng-container *ngIf="romService.browser$ | async as browser">
+      <div *ngIf="browser.enabled" class="box">
+        <div class="is-flex is-justify-content-space-between is-align-items-center is-flex-wrap-wrap" style="gap: .5rem">
+          <p class="subtitle mb-0"><i class="fa-brands fa-firefox-browser"></i>&nbsp;Browser</p>
+          <div class="buttons mb-0">
+            <button class="button is-danger" (click)="toggleBrowser()" [disabled]="!browser.running">
+              <i class="fa-solid" [ngClass]="browserOpen ? 'fa-eye-slash' : 'fa-display'"></i>&nbsp;{{ browserOpen ? 'Hide' : 'Open browser' }}
+            </button>
+            <a class="button is-light" [href]="browserUrl" target="_blank" rel="noopener" title="Full screen in a new tab">
+              <i class="fa-solid fa-up-right-from-square"></i>
+            </a>
+            <button class="button is-light" (click)="romService.restartBrowser()" title="Restart Firefox">
+              <i class="fa-solid fa-rotate-right"></i>
+            </button>
+          </div>
+        </div>
+        <p *ngIf="!browser.running" class="has-text-danger mt-2">{{ browser.message || 'Browser is starting…' }}</p>
+        <p class="is-size-7 mt-2">
+          Firefox runs on the server. Open Vimm's Lair, download as usual – the file is saved on the server,
+          extracted and sorted into the system folder automatically.
+        </p>
+        <div class="field is-horizontal mt-3" *ngIf="romService.inbox$ | async as inbox">
+          <div class="field-label is-normal"><label class="label is-small">System</label></div>
+          <div class="field-body">
+            <div class="select is-small">
+              <select [ngModel]="inbox.system ?? ''" (ngModelChange)="romService.setInboxSystem($event)"
+                      title="Applies to all following browser downloads">
+                <option value="">Auto-detect</option>
+                <option *ngFor="let s of romService.systems$ | async" [value]="s.slug">{{ s.name }}</option>
+              </select>
+            </div>
+            <span *ngIf="inbox.pending.length" class="tag is-info is-light ml-2">
+              {{ inbox.pending.length }} file(s) in inbox
+            </span>
+          </div>
+        </div>
+        <div *ngIf="browserOpen" class="browser-frame mt-3">
+          <iframe [src]="browserUrl | safeUrl" title="Built-in browser" allow="clipboard-read; clipboard-write"></iframe>
+        </div>
+      </div>
+    </ng-container>
+
     <p class="subtitle">Download</p>
     <div class="field has-addons">
       <div class="control is-expanded">
@@ -34,6 +76,19 @@
           <i class="fa-solid fa-download"></i>&nbsp;Download
         </button>
       </div>
+    </div>
+
+    <div *ngIf="(romService.queue$ | async)?.paused" class="notification is-warning">
+      <p>
+        <i class="fa-solid fa-circle-pause"></i>
+        <strong>Queue paused:</strong> {{ (romService.queue$ | async)?.reason }}
+      </p>
+      <p class="mt-2 is-size-7">
+        Waiting jobs stay queued. Check the screenshot of the failed job, try again later and resume.
+      </p>
+      <button class="button is-small is-dark mt-2" (click)="romService.resumeQueue()">
+        <i class="fa-solid fa-play"></i>&nbsp;Resume queue
+      </button>
     </div>
 
     <ng-container *ngIf="romService.romm$ | async as romm">

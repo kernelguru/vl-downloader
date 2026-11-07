@@ -38,6 +38,18 @@ export class RomEntity {
     @Column({default: false})
     systemManual?: boolean;
 
+    /** "vimm" = automatic download of a Vimm URL, "inbox" = file from the built-in browser / inbox folder */
+    @Column({default: 'vimm'})
+    source?: string;
+
+    /** Original file name in the inbox (archive) */
+    @Column({nullable: true})
+    sourceFile?: string;
+
+    /** Name of the page dump in <config>/debug (without .png/.html) if the download failed */
+    @Column({nullable: true})
+    debugFile?: string;
+
     /** Path relative to the download folder, e.g. "n64/Super Mario 64 (USA).zip" */
     @Column({nullable: true})
     relativePath?: string;

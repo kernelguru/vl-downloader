@@ -5,6 +5,12 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 WORKDIR /vl-downloader
 
+# noVNC web client for the built-in browser
+FROM alpine:3 AS novnc
+RUN apk add --no-cache git \
+    && git clone --depth 1 --branch v1.6.0 https://github.com/novnc/noVNC.git /opt/novnc \
+    && rm -rf /opt/novnc/.git /opt/novnc/tests /opt/novnc/docs
+
 FROM base AS builder
 COPY . .
 RUN npm ci
@@ -35,16 +41,23 @@ RUN apk add --no-cache \
     harfbuzz \
     ca-certificates \
     ttf-freefont \
-    redis
+    font-noto \
+    redis \
+    7zip \
+    firefox \
+    xvfb \
+    x11vnc \
+    websockify
 
+COPY --from=novnc /opt/novnc /opt/novnc
 COPY --from=deps /vl-downloader/node_modules ./node_modules
 
 COPY --from=builder /vl-downloader/dist .
 COPY --from=builder /vl-downloader/src/backend/.env.default ./.env
 
 # downloads + database are volumes; make the app dir usable for any uid
-RUN mkdir -p backend/downloads backend/config && chmod -R a+rwX /vl-downloader
+RUN mkdir -p backend/downloads backend/config backend/inbox && chmod -R a+rwX /vl-downloader
 
 EXPOSE 3000
-VOLUME ["/vl-downloader/backend/downloads", "/vl-downloader/backend/config"]
+VOLUME ["/vl-downloader/backend/downloads", "/vl-downloader/backend/config", "/vl-downloader/backend/inbox"]
 CMD ["node", "backend/src/main.js"]

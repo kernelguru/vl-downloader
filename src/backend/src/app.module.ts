@@ -49,7 +49,7 @@ import {EventEmitterModule} from "@nestjs/event-emitter";
               '../..',
               configService.get<string>(EnvironmentEnum.FE_PATH),
           ),
-          exclude: ['/api/(.*)'],
+          exclude: ['/api/(.*)', '/browser/(.*)'],
         },
       ],
       inject: [ConfigService],
