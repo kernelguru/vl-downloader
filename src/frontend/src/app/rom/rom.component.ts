@@ -18,7 +18,11 @@ export class RomComponent {
   trackStatusEnum = TrackStatusEnum;
 
   get percentage(): string {
-    return (((this.rom.receivedBytes ?? 0) * 100) / (this.rom.totalBytes ?? 0)).toFixed(2)
+    const total = this.rom.totalBytes ?? 0;
+    if (!total) {
+      return this.rom.status === TrackStatusEnum.Completed ? '100.00' : '0.00';
+    }
+    return Math.min(100, ((this.rom.receivedBytes ?? 0) * 100) / total).toFixed(2);
   }
 
 }

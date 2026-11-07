@@ -9,7 +9,7 @@ import {
 } from '@ngneat/elf-entities';
 import {HttpClient} from '@angular/common/http';
 import {Socket} from 'ngx-socket-io';
-import {tap} from 'rxjs';
+import {take} from 'rxjs';
 
 export enum TrackStatusEnum {
   Queued,
@@ -59,9 +59,7 @@ export class RomService {
   }
 
   fetch(): void {
-    this.http.get<Rom[]>(ENDPOINT).pipe(
-      tap((data: Rom[]) => this.store.update(upsertEntities(data))),
-    ).subscribe();
+    this.http.get<Rom[]>(ENDPOINT).subscribe((data: Rom[]) => this.store.update(upsertEntities(data)));
   }
 
   processUrl(url: string): void {
@@ -77,11 +75,12 @@ export class RomService {
   }
 
   deleteCompleted(): void {
-    this.finished$.pipe(tap(finished => finished.forEach(item => this.delete(item.id)))).subscribe();
+    // take(1): otherwise the subscription stays alive and deletes every job that completes later
+    this.finished$.pipe(take(1)).subscribe(finished => finished.forEach(item => this.delete(item.id)));
   }
 
   deleteFailed(): void {
-    this.failed$.pipe(tap(failed => failed.forEach(item => this.delete(item.id)))).subscribe();
+    this.failed$.pipe(take(1)).subscribe(failed => failed.forEach(item => this.delete(item.id)));
   }
 
   private initWsConnection(): void {
