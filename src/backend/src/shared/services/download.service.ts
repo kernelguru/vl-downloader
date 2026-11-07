@@ -2,7 +2,7 @@ import {Injectable, Logger} from '@nestjs/common';
 import {RomEntity} from "../../rom/rom.entity";
 import puppeteer, {Browser, CDPSession, Page, Protocol} from "puppeteer";
 import {EventEmitter2} from "@nestjs/event-emitter";
-import {basename, join} from "path";
+import {basename, dirname, join, resolve} from "path";
 import * as fs from "fs";
 import {findSystemByName, findSystemByVimmCode, findSystemInTitle, SystemInfo} from "../../library/systems";
 
@@ -19,7 +19,13 @@ export interface DownloadOptions {
     system?: SystemInfo;
     /** Returns the directory to download into, given the detected system */
     chooseDir: (system?: SystemInfo) => string;
+    /** Used to name screenshot / HTML dumps when something goes wrong */
+    debugName?: string;
 }
+
+/** Headless Chrome announces itself as "HeadlessChrome"; use a regular desktop UA instead. */
+const USER_AGENT = process.env.USER_AGENT
+    || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
 
 /** Raw hints collected inside the page, interpreted in Node (see detectSystem). */
 interface PageSystemHints {
@@ -42,13 +48,24 @@ type DownloadProgressEvent = Protocol.Browser.DownloadProgressEvent;
 const SELECTORS = {
     cookieButton: '#qc-cmp2-container button[mode="primary"]',
     titleMeta: 'meta[property="og:title"]',
-    downloadButton: '#dl_form button',
+    /** Tried in this order; the first one found on the page is clicked. */
+    downloadButtons: [
+        '#dl_form button[type="submit"]',
+        '#dl_form button',
+        '#dl_form input[type="submit"]',
+        'form[action*="download" i] button',
+        'form[action*="download" i] input[type="submit"]',
+    ],
     acknowledgeButton: 'input[value="Continue"]',
 };
 
 const PUPPETEER_SETTINGS = {
     headless: true,
-    args: ['--no-sandbox', '--disable-gpu', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    args: [
+        '--no-sandbox', '--disable-gpu', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
+        '--disable-blink-features=AutomationControlled',
+        '--lang=en-US,en',
+    ],
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
 };
 
@@ -115,7 +132,7 @@ export class DownloadService {
             const browser = await withCancel(launching);
             const browserSession = await browser.target().createCDPSession();
 
-            const page = await browser.newPage();
+            const page = await this.newPage(browser);
             this.logger.debug(`Go to ${romUrl}`);
             await withCancel(page.goto(romUrl, {waitUntil: 'domcontentloaded', timeout: PAGE_TIMEOUT_MS}));
 
@@ -140,8 +157,8 @@ export class DownloadService {
             // Register listeners before clicking so no event is missed.
             const started = this.waitForDownloadStart(browserSession);
             started.catch(() => undefined); // awaited below; may reject if clicking fails first
-            await page.waitForSelector(SELECTORS.downloadButton, {timeout: PAGE_TIMEOUT_MS});
-            await page.click(SELECTORS.downloadButton);
+            const button = await withCancel(this.findDownloadButton(page, options.debugName));
+            await button.click();
             this.logger.debug('Download clicked');
 
             // Some ROMs show an extra "Continue" prompt; click it if it shows up, ignore otherwise.
@@ -181,7 +198,7 @@ export class DownloadService {
     async detectSystemForUrl(romUrl: string): Promise<SystemInfo | undefined> {
         const browser = await puppeteer.launch(PUPPETEER_SETTINGS);
         try {
-            const page = await browser.newPage();
+            const page = await this.newPage(browser);
             await page.goto(romUrl, {waitUntil: 'domcontentloaded', timeout: PAGE_TIMEOUT_MS});
             await this.acceptCookies(page);
             return await this.detectSystem(page, await this.readTitle(page));
@@ -235,6 +252,87 @@ export class DownloadService {
             ?? unique(hints.headings.map(findSystemByName))
             ?? [title, ...hints.titles].map(findSystemInTitle).find(Boolean)
             ?? unique(hints.navCodes.map(findSystemByVimmCode));
+    }
+
+    private async newPage(browser: Browser): Promise<Page> {
+        const page = await browser.newPage();
+        await page.setUserAgent(USER_AGENT);
+        await page.setExtraHTTPHeaders({'Accept-Language': 'en-US,en;q=0.9'});
+        return page;
+    }
+
+    /**
+     * Waits for one of the known download buttons. If none shows up, the page is analysed
+     * (unavailable title, bot protection, …), a screenshot + HTML are saved and a readable error is thrown.
+     */
+    private async findDownloadButton(page: Page, debugName?: string) {
+        const selectors = SELECTORS.downloadButtons;
+        try {
+            await page.waitForFunction(
+                (list: string[]) => list.some(sel => document.querySelector(sel)),
+                {timeout: PAGE_TIMEOUT_MS, polling: 500},
+                selectors,
+            );
+            for (const selector of selectors) {
+                const button = await page.$(selector);
+                if (button) {
+                    this.logger.debug(`Download button found via ${selector}`);
+                    return button;
+                }
+            }
+        } catch {
+            // analysed below
+        }
+        const reason = await this.explainMissingButton(page);
+        const dump = await this.saveDebugDump(page, debugName);
+        throw new Error(`Download button not found: ${reason}${dump ? ` (screenshot/HTML: ${dump})` : ''}`);
+    }
+
+    private async explainMissingButton(page: Page): Promise<string> {
+        try {
+            const {title, text, url, hasForm} = await page.evaluate(() => ({
+                title: document.title,
+                text: (document.body?.innerText ?? '').slice(0, 20000),
+                url: location.href,
+                hasForm: !!document.querySelector('#dl_form'),
+            }));
+            const lower = text.toLowerCase();
+            if (/just a moment|checking your browser|cf-chl|verify you are human|captcha|attention required/.test(lower + title.toLowerCase())) {
+                return `bot protection page ("${title}") – Vimm's Lair blocks the headless browser`;
+            }
+            if (/unavailable|not available|no longer available|removed at the request|download disabled/.test(lower)) {
+                const line = text.split('\n').find(l => /unavailable|not available|removed|disabled/i.test(l))?.trim();
+                return `download not available for this title${line ? ` ("${line.slice(0, 160)}")` : ''}`;
+            }
+            if (/too many|rate limit|try again later|slow down/.test(lower)) {
+                return 'Vimm\'s Lair is rate limiting, try again later';
+            }
+            if (!/vimm\.net\/vault\//.test(url)) {
+                return `redirected to ${url}`;
+            }
+            return hasForm
+                ? `#dl_form exists but contains no known button – the page layout probably changed (title "${title}")`
+                : `no download form on the page – the page layout probably changed (title "${title}")`;
+        } catch (e) {
+            return `page could not be analysed (${e})`;
+        }
+    }
+
+    /** Saves <config>/debug/<name>.png and .html; returns the folder-relative name or undefined. */
+    private async saveDebugDump(page: Page, debugName?: string): Promise<string | undefined> {
+        try {
+            const configDir = dirname(resolve(__dirname, '..', '..', '..', process.env.DB_PATH || './config/db.sqlite'));
+            const dir = join(configDir, 'debug');
+            fs.mkdirSync(dir, {recursive: true});
+            const name = `${(debugName || 'download').replace(/[^\w.-]/g, '_')}-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+            await page.screenshot({path: join(dir, `${name}.png`) as `${string}.png`, fullPage: true});
+            fs.writeFileSync(join(dir, `${name}.html`), await page.content());
+            this.logger.warn(`Saved page dump to ${join(dir, name)}.{png,html}`);
+            return `config/debug/${name}`;
+        } catch (e) {
+            this.logger.warn(`Unable to save debug dump: ${e}`);
+            return undefined;
+        }
     }
 
     private async acceptCookies(page: Page): Promise<void> {

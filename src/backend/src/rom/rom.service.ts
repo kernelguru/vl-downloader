@@ -177,7 +177,7 @@ export class RomService implements OnApplicationBootstrap {
                 rom.url,
                 this.getEventName(id),
                 (val: Partial<RomEntity>) => this.updatePartial(id, val),
-                {system: manual, chooseDir: (system?: SystemInfo) => this.library.targetDir(system?.slug)},
+                {system: manual, debugName: `rom-${id}`, chooseDir: (system?: SystemInfo) => this.library.targetDir(system?.slug)},
             );
 
             let path = this.locateDownloadedFile(result.dir, result.fileName);
