@@ -57,6 +57,19 @@ The image contains a Firefox running on the server (Xvfb + x11vnc + noVNC). Open
 **Open browser** in the web UI – also from a phone – browse Vimm's Lair and download as usual.
 You use the site yourself (including any "are you human" check); only the file transfer happens on the server.
 
+The remote screen adapts to the size of the device (noVNC `resize=remote` with TigerVNC).
+
+### iPhone: "Open on NAS" from Safari
+Find the game in Safari as usual, then send the page to the NAS browser with a shortcut:
+1. Shortcuts app → **+** → name it *Open on NAS*, enable **Show in Share Sheet** (accepts URLs / Safari web pages).
+2. Action **URL encode** (input: *Shortcut Input*).
+3. Action **Text**: `http://<nas>:3000/api/library/browser/open?url=` followed by *URL Encoded Text*.
+4. Action **Open URLs** with that text.
+
+Share → *Open on NAS* opens the page in the server's Firefox and shows it full screen: confirm the check,
+tap Download. The same instructions with your server address are in the web UI.
+Only `https://vimm.net/…` pages can be opened this way.
+
 Downloads are saved into the inbox (`/vl-downloader/backend/inbox`). As soon as a file is complete it is
 - extracted (`.zip`, `.7z`, `.rar` with 7-Zip; archive deleted afterwards),
 - assigned to a system: file extensions, `.gdi`, or the disc header of `.iso`/`.bin` images

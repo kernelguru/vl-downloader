@@ -31,6 +31,35 @@
           Firefox runs on the server. Open Vimm's Lair, download as usual – the file is saved on the server,
           extracted and sorted into the system folder automatically.
         </p>
+        <div class="field has-addons mt-3">
+          <div class="control is-expanded">
+            <input class="input is-small" type="url" placeholder="https://vimm.net/vault/12345 – open on the NAS"
+                   [formControl]="openUrl" (keyup.enter)="openUrl.valid && openUrl.value && openOnNas()">
+          </div>
+          <div class="control">
+            <button class="button is-small is-danger" [disabled]="!openUrl.value || openUrl.invalid" (click)="openOnNas()">
+              <i class="fa-solid fa-arrow-up-right-from-square"></i>&nbsp;Open on NAS
+            </button>
+          </div>
+        </div>
+        <p *ngIf="openError" class="help is-danger">{{ openError }}</p>
+        <p class="is-size-7">
+          <a href="#" (click)="$event.preventDefault(); showShortcutHelp = !showShortcutHelp">
+            <i class="fa-brands fa-apple"></i> iPhone: "Open on NAS" from the Safari share sheet
+          </a>
+        </p>
+        <div *ngIf="showShortcutHelp" class="content is-size-7 mt-2">
+          <ol>
+            <li>Shortcuts app → <strong>+</strong> → name it <em>Open on NAS</em>.</li>
+            <li>Settings (ⓘ) → enable <strong>Show in Share Sheet</strong>, accept <strong>URLs</strong> (and Safari web pages).</li>
+            <li>Action <strong>URL encode</strong> → input: <em>Shortcut Input</em>.</li>
+            <li>Action <strong>Text</strong>: <code>{{ openOnNasUrl }}</code> followed by the variable <em>URL Encoded Text</em>.</li>
+            <li>Action <strong>Open URLs</strong> → input: the <em>Text</em>.</li>
+          </ol>
+          <p>In Safari on a Vimm page: Share → <em>Open on NAS</em>. The page opens in the NAS browser full screen –
+            confirm the check, tap Download, done.</p>
+        </div>
+
         <div class="field is-horizontal mt-3" *ngIf="romService.inbox$ | async as inbox">
           <div class="field-label is-normal"><label class="label is-small">System</label></div>
           <div class="field-body">

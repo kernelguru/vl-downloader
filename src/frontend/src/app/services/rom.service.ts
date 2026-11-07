@@ -133,6 +133,10 @@ export class RomService {
     this.http.get<InboxStatus>(`${LIBRARY_ENDPOINT}/inbox`).subscribe(status => this.inbox$.next(status));
   }
 
+  openInBrowser(url: string): Observable<BrowserStatus> {
+    return this.http.post<BrowserStatus>(`${LIBRARY_ENDPOINT}/browser/open`, {url});
+  }
+
   restartBrowser(): void {
     this.http.post<BrowserStatus>(`${LIBRARY_ENDPOINT}/browser/restart`, null).subscribe(status => this.browser$.next(status));
   }

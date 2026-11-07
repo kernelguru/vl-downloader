@@ -1,6 +1,7 @@
-import {Body, Controller, Get, ParseBoolPipe, Post, Query} from '@nestjs/common';
+import {Body, Controller, Get, ParseBoolPipe, Post, Query, Res} from '@nestjs/common';
+import type {Response} from 'express';
 import {InboxService, InboxStatus} from './inbox.service';
-import {BrowserService, BrowserStatus} from '../browser/browser.service';
+import {BrowserService, BrowserStatus, NOVNC_CLIENT_URL} from '../browser/browser.service';
 import {LibraryService} from './library.service';
 import {RommService, RommStatus} from './romm.service';
 import {OrganizeReport, QueueStatus, RomService} from '../rom/rom.service';
@@ -27,6 +28,21 @@ export class LibraryController {
     @Get('browser')
     browserStatus(): BrowserStatus {
         return this.browser.status();
+    }
+
+    /**
+     * For the iOS share sheet / bookmarks: opens the Vimm page in the server's Firefox and
+     * redirects to the full-screen browser view. GET so that a plain "Open URL" action is enough.
+     */
+    @Get('browser/open')
+    async openInBrowserAndShow(@Query('url') url: string, @Res() res: Response): Promise<void> {
+        await this.browser.openUrl(url);
+        res.redirect(302, NOVNC_CLIENT_URL);
+    }
+
+    @Post('browser/open')
+    openInBrowser(@Body() body: { url: string }): Promise<BrowserStatus> {
+        return this.browser.openUrl(body?.url);
     }
 
     @Post('browser/restart')

@@ -22,7 +22,12 @@ export class AppComponent {
   all$: Observable<Rom[]>;
 
   browserOpen = false;
-  readonly browserUrl = 'browser/vnc.html?autoconnect=true&reconnect=true&resize=scale&show_dot=true&path=browser/websockify';
+  readonly browserUrl = 'browser/vnc.html?autoconnect=true&reconnect=true&resize=remote&show_dot=true&path=browser/websockify';
+  /** Template for the iOS shortcut: …/browser/open?url=<page> */
+  readonly openOnNasUrl = `${location.origin}/api/library/browser/open?url=`;
+  openUrl = new FormControl('', {nonNullable: true, validators: [Validators.pattern(/^https:\/\/(www\.)?vimm\.net(\/\S*)?$/i)]});
+  openError?: string;
+  showShortcutHelp = false;
 
   organizeOnline = false;
   organizeBusy = false;
@@ -66,6 +71,19 @@ export class AppComponent {
         this.organizeError = err?.error?.message ?? 'Organizing failed';
         this.organizeBusy = false;
       },
+    });
+  }
+
+  /** Opens the page in the server's Firefox and shows the browser. */
+  openOnNas(): void {
+    const url = this.openUrl.value.trim();
+    this.openError = undefined;
+    this.romService.openInBrowser(url).subscribe({
+      next: () => {
+        this.openUrl.reset();
+        this.browserOpen = true;
+      },
+      error: err => (this.openError = err?.error?.message ?? 'Could not open the page'),
     });
   }
 
