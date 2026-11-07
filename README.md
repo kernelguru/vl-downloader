@@ -30,19 +30,19 @@ The project is based on NestJS and Angular.
 # 🚀 Installation
 
 ### Docker Compose (recommended)
-`docker-compose.yml` runs VL Downloader with its own Redis container and keeps the
-database in a volume.
+`docker-compose.yml` runs VL Downloader as a single container (the Redis used for the
+queue is built in) and keeps the database in a volume.
 
 ```bash
-mkdir -p downloads config redis
+mkdir -p downloads config
 sudo chown 99:100 downloads config   # matches `user: "99:100"` (Unraid nobody:users)
 docker compose up -d
 ```
 The image `ghcr.io/kernelguru/vl-downloader` is built by GitHub Actions on every push to `main`.
 Then open http://<host>:3000. Remove the `user:` line in the compose file to run as root.
 
-### Single container
-The image still ships an embedded Redis, so a plain `docker run` keeps working:
+### docker run
+Without compose:
 ```bash
 docker run -d -p 3000:3000 \
   -v /path/to/downloads:/vl-downloader/backend/downloads \
@@ -93,7 +93,7 @@ RomM and VL Downloader both need write access to the folder (same uid/gid, e.g. 
 | `ROMM_USERNAME` / `ROMM_PASSWORD` | – | Alternative to the token |
 | `ROMM_SCAN_DELAY` | `30` | Seconds to wait after the last download before scanning |
 | `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` | Redis for the download queue |
-| `EMBEDDED_REDIS` | `true` | Start the bundled redis-server if Redis is local and not running |
+| `EMBEDDED_REDIS` | `true` | Start the bundled redis-server if Redis is local and not running; set `false` with an external Redis |
 | `PAGE_TIMEOUT` | `60` | Seconds to load the Vimm page |
 | `DOWNLOAD_START_TIMEOUT` | `90` | Seconds until the download has to start |
 | `DOWNLOAD_STALL_TIMEOUT` | `180` | Abort if no progress for this many seconds |

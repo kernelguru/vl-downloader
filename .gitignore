@@ -7,4 +7,3 @@
 .cache# docker compose data
 /downloads
 /config
-/redis

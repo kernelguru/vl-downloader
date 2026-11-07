@@ -1,4 +1,4 @@
-# VL Downloader + Redis.
+# VL Downloader – single container (Redis for the queue is built in).
 # Adjust the paths on the left side of the volumes, then: docker compose up -d
 #
 # RomM: point the downloads volume at RomM's roms folder, e.g. for structure A
@@ -11,16 +11,11 @@ services:
     # build: .   # uncomment to build locally instead of pulling
     container_name: vl-downloader
     restart: unless-stopped
-    depends_on:
-      - redis
     # Unraid default (nobody:users). Remove to run as root.
     user: "99:100"
     ports:
       - "3000:3000"
     environment:
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      EMBEDDED_REDIS: "false"
       TZ: Europe/Berlin
 
       # --- Folders ---------------------------------------------------------
@@ -41,6 +36,13 @@ services:
       # Seconds to wait after the last download before RomM scans
       # ROMM_SCAN_DELAY: 30
 
+      # --- External Redis (optional) ---------------------------------------
+      # Not needed: the container starts its own redis-server. The queue is
+      # rebuilt from the database on start, so Redis needs no persistence.
+      # REDIS_HOST: my-redis
+      # REDIS_PORT: 6379
+      # EMBEDDED_REDIS: "false"
+
       # --- Timeouts in seconds (optional) ----------------------------------
       # PAGE_TIMEOUT: 60
       # DOWNLOAD_START_TIMEOUT: 90
@@ -49,11 +51,3 @@ services:
       - ./downloads:/vl-downloader/backend/downloads
       - ./config:/vl-downloader/backend/config
     shm_size: "512mb"
-
-  redis:
-    image: redis:7-alpine
-    container_name: vl-downloader-redis
-    restart: unless-stopped
-    command: ["redis-server", "--save", "60", "1", "--appendonly", "no"]
-    volumes:
-      - ./redis:/data
