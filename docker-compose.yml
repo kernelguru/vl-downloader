@@ -7,8 +7,8 @@
 
 services:
   vl-downloader:
-    build: .
-    image: kernelguru/vl-downloader:latest
+    image: ghcr.io/kernelguru/vl-downloader:latest
+    # build: .   # uncomment to build locally instead of pulling
     container_name: vl-downloader
     restart: unless-stopped
     depends_on:

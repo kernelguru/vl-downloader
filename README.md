@@ -36,8 +36,9 @@ database in a volume.
 ```bash
 mkdir -p downloads config redis
 sudo chown 99:100 downloads config   # matches `user: "99:100"` (Unraid nobody:users)
-docker compose up -d --build
+docker compose up -d
 ```
+The image `ghcr.io/kernelguru/vl-downloader` is built by GitHub Actions on every push to `main`.
 Then open http://<host>:3000. Remove the `user:` line in the compose file to run as root.
 
 ### Single container
@@ -46,7 +47,7 @@ The image still ships an embedded Redis, so a plain `docker run` keeps working:
 docker run -d -p 3000:3000 \
   -v /path/to/downloads:/vl-downloader/backend/downloads \
   -v /path/to/config:/vl-downloader/backend/config \
-  kernelguru/vl-downloader:latest
+  ghcr.io/kernelguru/vl-downloader:latest
 ```
 Queued downloads survive restarts: they are stored in the database and re-queued on start.
 
