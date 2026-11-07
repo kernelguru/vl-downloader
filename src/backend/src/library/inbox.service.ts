@@ -27,15 +27,17 @@ const truthy = (value: string | undefined, fallback: boolean) =>
  * Watches the inbox (download folder of the built-in browser), waits until a download is complete,
  * extracts archives, detects the system and moves the game into the library.
  *
+ * While Firefox downloads (it writes "<name>.part"), an entry with the received bytes and the speed is shown.
+ *
  * Env: INBOX_PATH (default ./inbox), EXTRACT_ARCHIVES (default true), DELETE_ARCHIVES (default true),
- *      INBOX_POLL (seconds, default 5)
+ *      INBOX_POLL (seconds, default 2)
  */
 @Injectable()
 export class InboxService implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly logger = new Logger(InboxService.name);
     private readonly extract = truthy(process.env.EXTRACT_ARCHIVES, true);
     private readonly deleteArchives = truthy(process.env.DELETE_ARCHIVES, true);
-    private readonly pollMs = Math.max(2, Number(process.env.INBOX_POLL) || 5) * 1000;
+    private readonly pollMs = Math.max(1, Number(process.env.INBOX_POLL) || 2) * 1000;
     /** path -> last seen size/mtime and how many polls it stayed unchanged */
     private readonly seen = new Map<string, { size: number; mtime: number; stable: number }>();
     /** "path:mtime" of files that failed, so they are not retried in a loop */
@@ -43,6 +45,8 @@ export class InboxService implements OnApplicationBootstrap, OnModuleDestroy {
     private timer?: NodeJS.Timeout;
     private busy = false;
     private system: SystemInfo | undefined;
+    /** final file name -> entry shown while Firefox is still downloading it */
+    private readonly active = new Map<string, { id: number; bytes: number; at: number }>();
 
     constructor(
         private readonly utils: UtilsService,
@@ -110,6 +114,7 @@ export class InboxService implements OnApplicationBootstrap, OnModuleDestroy {
         }
         this.busy = true;
         try {
+            await this.trackPartialDownloads();
             const candidates = this.listCandidates();
             for (const path of [...this.seen.keys()]) {
                 !candidates.includes(path) && this.seen.delete(path);
@@ -124,6 +129,58 @@ export class InboxService implements OnApplicationBootstrap, OnModuleDestroy {
             this.logger.error(`Inbox poll failed: ${e}`);
         } finally {
             this.busy = false;
+        }
+    }
+
+    /** Show running Firefox downloads ("<name>.part") with received bytes and speed. */
+    private async trackPartialDownloads(): Promise<void> {
+        let parts: string[];
+        try {
+            parts = fs.readdirSync(this.path).filter(name => name.endsWith('.part') && !name.startsWith('.'));
+        } catch {
+            return;
+        }
+        const now = Date.now();
+        const current = new Set<string>();
+        for (const part of parts) {
+            const fileName = part.slice(0, -'.part'.length);
+            current.add(fileName);
+            let bytes: number;
+            try {
+                bytes = fs.statSync(join(this.path, part)).size;
+            } catch {
+                continue;
+            }
+            const entry = this.active.get(fileName);
+            if (!entry) {
+                const rom = await this.romService.createInboxEntry(basename(fileName, extname(fileName)), fileName, 0, 'downloading');
+                this.active.set(fileName, {id: rom.id, bytes, at: now});
+                await this.romService.updatePartial(rom.id, {receivedBytes: bytes});
+                continue;
+            }
+            const seconds = (now - entry.at) / 1000;
+            if (seconds > 0 && bytes !== entry.bytes) {
+                const speed = Math.max(0, Math.round((bytes - entry.bytes) / seconds));
+                entry.bytes = bytes;
+                entry.at = now;
+                await this.romService.updatePartial(entry.id, {receivedBytes: bytes, bytesPerSecond: speed});
+            } else if (seconds > 15) {
+                await this.romService.updatePartial(entry.id, {bytesPerSecond: 0});
+                entry.at = now;
+            }
+        }
+        // .part gone: either finished (final file is complete now) or canceled in Firefox
+        for (const [fileName, entry] of [...this.active]) {
+            if (current.has(fileName)) {
+                continue;
+            }
+            const finalPath = join(this.path, fileName);
+            const finished = fs.existsSync(finalPath) && fs.statSync(finalPath).size > 0;
+            if (!finished) {
+                this.active.delete(fileName);
+                await this.romService.removeEntry(entry.id);
+            }
+            // finished: the entry is picked up by process()
         }
     }
 
@@ -158,7 +215,16 @@ export class InboxService implements OnApplicationBootstrap, OnModuleDestroy {
         this.seen.delete(path);
         this.logger.log(`Processing ${fileName}`);
 
-        const rom = await this.romService.createInboxEntry(stem, fileName, fs.statSync(path).size);
+        const size = fs.statSync(path).size;
+        const running = this.active.get(fileName);
+        this.active.delete(fileName);
+        const rom = running && await this.romService.get(running.id)
+            ? {id: running.id}
+            : await this.romService.createInboxEntry(stem, fileName, size, 'extracting');
+        await this.romService.updatePartial(rom.id, {
+            totalBytes: size, receivedBytes: size, bytesPerSecond: null,
+            stage: this.extract && isArchive(path) ? 'extracting' : 'sorting',
+        });
         const workDir = join(this.path, `.extract-${rom.id}`);
         try {
             let items: string[];
@@ -173,6 +239,7 @@ export class InboxService implements OnApplicationBootstrap, OnModuleDestroy {
                 items = [path];
             }
 
+            await this.romService.updatePartial(rom.id, {stage: 'sorting'});
             const system = this.system ?? this.library.detectFromFiles(items) ?? (extracted ? undefined : this.library.detectFromFile(path));
             const target = this.library.targetDir(system?.slug);
 
@@ -198,6 +265,7 @@ export class InboxService implements OnApplicationBootstrap, OnModuleDestroy {
 
             await this.romService.updatePartial(rom.id, {
                 status: TrackStatusEnum.Completed,
+                stage: null,
                 system: system?.slug ?? null,
                 fileName: basename(moved),
                 relativePath: this.library.toRelative(moved),
@@ -214,6 +282,7 @@ export class InboxService implements OnApplicationBootstrap, OnModuleDestroy {
             this.logger.error(`Processing ${fileName} failed: ${e}`);
             await this.romService.updatePartial(rom.id, {
                 status: TrackStatusEnum.Error,
+                stage: null,
                 error: `Processing failed: ${e instanceof Error ? e.message : e}`,
             });
         } finally {

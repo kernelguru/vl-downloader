@@ -75,7 +75,12 @@ export class RomService implements OnApplicationBootstrap {
         });
         for (const rom of pending) {
             if (rom.source === 'inbox') {
-                await this.repository.update(rom.id, {status: TrackStatusEnum.Error, error: 'Interrupted by a restart – use retry'});
+                if (rom.stage === 'downloading') {
+                    // still in Firefox (or canceled); the inbox creates a fresh entry if it is still running
+                    await this.repository.delete(rom.id);
+                } else {
+                    await this.repository.update(rom.id, {status: TrackStatusEnum.Error, stage: null, error: 'Interrupted by a restart – use retry'});
+                }
                 continue;
             }
             await this.repository.update(rom.id, {status: TrackStatusEnum.Queued, receivedBytes: 0, error: null});
@@ -156,18 +161,25 @@ export class RomService implements OnApplicationBootstrap {
     }
 
     /** Entry for a file that arrived in the inbox (built-in browser). */
-    async createInboxEntry(name: string, sourceFile: string, size: number): Promise<RomEntity> {
+    async createInboxEntry(name: string, sourceFile: string, size: number, stage: string): Promise<RomEntity> {
         const saved = await this.repository.save({
             url: '',
             name,
             source: 'inbox',
             sourceFile,
+            stage,
             status: TrackStatusEnum.Downloading,
             totalBytes: size,
             receivedBytes: 0,
         });
         this.io.emit(WsOperation.New, saved);
         return saved;
+    }
+
+    /** Remove an entry without touching files (e.g. download canceled in the browser). */
+    async removeEntry(id: number): Promise<void> {
+        await this.repository.delete(id);
+        this.io.emit(WsOperation.Delete, {id});
     }
 
     /** Change the system of an entry; a finished download is moved to the matching folder. */

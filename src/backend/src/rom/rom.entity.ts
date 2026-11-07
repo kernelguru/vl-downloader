@@ -46,6 +46,14 @@ export class RomEntity {
     @Column({nullable: true})
     sourceFile?: string;
 
+    /** Current step for inbox files: downloading, extracting, sorting */
+    @Column({nullable: true})
+    stage?: string;
+
+    /** Download speed while the built-in browser is downloading */
+    @Column({nullable: true})
+    bytesPerSecond?: number;
+
     /** Name of the page dump in <config>/debug (without .png/.html) if the download failed */
     @Column({nullable: true})
     debugFile?: string;
