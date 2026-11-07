@@ -1,19 +1,33 @@
-FROM node:18.20.4-alpine AS builder
+# Toolchain for native modules (sqlite3 has no musl prebuild for Node 22 and compiles)
+FROM node:22-alpine AS base
+RUN apk add --no-cache python3 py3-setuptools make g++
+ENV PUPPETEER_SKIP_DOWNLOAD=true \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 WORKDIR /vl-downloader
+
+FROM base AS builder
 COPY . .
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD true
 RUN npm ci
 RUN npm run build
 
-FROM node:18.20.4-alpine
+# Production dependencies of the backend only
+FROM base AS deps
+COPY package.json package-lock.json ./
+COPY src/backend/package.json ./src/backend/package.json
+COPY src/frontend/package.json ./src/frontend/package.json
+RUN npm ci --omit=dev --workspace backend \
+    && rm -rf node_modules/backend node_modules/frontend
+
+FROM node:22-alpine
+
 WORKDIR /vl-downloader
-COPY --from=builder /vl-downloader/dist .
-COPY --from=builder /vl-downloader/src ./src
-COPY --from=builder /vl-downloader/package.json ./package.json
-COPY --from=builder /vl-downloader/package-lock.json ./package-lock.json
-COPY --from=builder /vl-downloader/src/backend/.env.default ./.env
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD true
-ENV PUPPETEER_EXECUTABLE_PATH /usr/bin/chromium-browser
+ENV PUPPETEER_SKIP_DOWNLOAD=true \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
+    NODE_ENV=production \
+    # Chromium needs a writable home, also when running as a non-root user (e.g. 99:100 on Unraid)
+    HOME=/tmp
+
 RUN apk add --no-cache \
     chromium \
     nss \
@@ -22,8 +36,15 @@ RUN apk add --no-cache \
     ca-certificates \
     ttf-freefont \
     redis
-RUN rm -rf node_modules
-RUN npm ci --omit=dev
-RUN rm -rf src package.json package-lock.json
+
+COPY --from=deps /vl-downloader/node_modules ./node_modules
+
+COPY --from=builder /vl-downloader/dist .
+COPY --from=builder /vl-downloader/src/backend/.env.default ./.env
+
+# downloads + database are volumes; make the app dir usable for any uid
+RUN mkdir -p backend/downloads backend/config && chmod -R a+rwX /vl-downloader
+
 EXPOSE 3000
+VOLUME ["/vl-downloader/backend/downloads", "/vl-downloader/backend/config"]
 CMD ["node", "backend/src/main.js"]

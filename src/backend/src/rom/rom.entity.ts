@@ -30,6 +30,18 @@ export class RomEntity {
     @Column({nullable: true})
     error?: string;
 
+    /** RomM platform slug, e.g. "n64" */
+    @Column({nullable: true})
+    system?: string;
+
+    /** true if the user picked the system instead of auto detection */
+    @Column({default: false})
+    systemManual?: boolean;
+
+    /** Path relative to the download folder, e.g. "n64/Super Mario 64 (USA).zip" */
+    @Column({nullable: true})
+    relativePath?: string;
+
     @Column({ default: TrackStatusEnum.Queued })
     status: TrackStatusEnum;
 }

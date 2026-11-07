@@ -4,4 +4,7 @@
 **/*.sqlite
 # Local Netlify folder
 .netlify
-.cache
+.cache# docker compose data
+/downloads
+/config
+/redis
