@@ -1,11 +1,22 @@
-FROM node:22-alpine AS builder
-
-WORKDIR /vl-downloader
-COPY . .
+# Toolchain for native modules (sqlite3 has no musl prebuild for Node 22 and compiles)
+FROM node:22-alpine AS base
+RUN apk add --no-cache python3 py3-setuptools make g++
 ENV PUPPETEER_SKIP_DOWNLOAD=true \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+WORKDIR /vl-downloader
+
+FROM base AS builder
+COPY . .
 RUN npm ci
 RUN npm run build
+
+# Production dependencies of the backend only
+FROM base AS deps
+COPY package.json package-lock.json ./
+COPY src/backend/package.json ./src/backend/package.json
+COPY src/frontend/package.json ./src/frontend/package.json
+RUN npm ci --omit=dev --workspace backend \
+    && rm -rf node_modules/backend node_modules/frontend
 
 FROM node:22-alpine
 
@@ -26,12 +37,7 @@ RUN apk add --no-cache \
     ttf-freefont \
     redis
 
-COPY --from=builder /vl-downloader/package.json /vl-downloader/package-lock.json ./
-COPY --from=builder /vl-downloader/src/backend/package.json ./src/backend/package.json
-COPY --from=builder /vl-downloader/src/frontend/package.json ./src/frontend/package.json
-RUN npm ci --omit=dev --workspace backend --include-workspace-root=false \
-    && npm cache clean --force \
-    && rm -rf src package.json package-lock.json
+COPY --from=deps /vl-downloader/node_modules ./node_modules
 
 COPY --from=builder /vl-downloader/dist .
 COPY --from=builder /vl-downloader/src/backend/.env.default ./.env
