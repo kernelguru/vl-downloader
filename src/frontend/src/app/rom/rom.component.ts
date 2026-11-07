@@ -1,11 +1,12 @@
 import {Component, EventEmitter, Input, Output} from '@angular/core';
 import {CommonModule} from '@angular/common';
+import {FormsModule} from '@angular/forms';
 import {NgxFilesizeModule} from 'ngx-filesize';
-import {Rom, TrackStatusEnum} from '../services/rom.service';
+import {Rom, RomService, TrackStatusEnum} from '../services/rom.service';
 
 @Component({
   selector: 'app-rom',
-  imports: [CommonModule, NgxFilesizeModule],
+  imports: [CommonModule, FormsModule, NgxFilesizeModule],
   templateUrl: './rom.component.html',
   standalone: true,
   styleUrl: './rom.component.scss'
@@ -13,9 +14,14 @@ import {Rom, TrackStatusEnum} from '../services/rom.service';
 export class RomComponent {
 
   @Input() rom!: Rom;
-  @Output() remove: EventEmitter<number> = new EventEmitter();
+  @Output() remove: EventEmitter<{ id: number; deleteFile: boolean }> = new EventEmitter();
   @Output() retry: EventEmitter<number> = new EventEmitter();
+  @Output() changeSystem: EventEmitter<{ id: number; system: string }> = new EventEmitter();
   trackStatusEnum = TrackStatusEnum;
+  editingSystem = false;
+  selectedSystem = '';
+
+  constructor(readonly romService: RomService) {}
 
   get percentage(): string {
     const total = this.rom.totalBytes ?? 0;
@@ -25,4 +31,19 @@ export class RomComponent {
     return Math.min(100, ((this.rom.receivedBytes ?? 0) * 100) / total).toFixed(2);
   }
 
+  get systemName(): string | undefined {
+    return this.romService.systemName(this.rom.system);
+  }
+
+  startEditSystem(): void {
+    this.selectedSystem = this.rom.system ?? '';
+    this.editingSystem = true;
+  }
+
+  saveSystem(): void {
+    if (this.selectedSystem && this.selectedSystem !== this.rom.system) {
+      this.changeSystem.emit({id: this.rom.id, system: this.selectedSystem});
+    }
+    this.editingSystem = false;
+  }
 }

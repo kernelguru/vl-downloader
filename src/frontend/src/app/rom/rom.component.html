@@ -2,24 +2,43 @@
   <div class="card-content">
     <div class="media">
       <div class="media-content is-flex is-justify-content-space-between">
-        <p class="title is-4">
-          <i *ngIf="rom.status === trackStatusEnum.Queued" class="fa-solid fa-clock has-text-info" title="Queued"></i>
-          {{ rom.name ?? rom.url }}
-        </p>
+        <div>
+          <p class="title is-4">
+            <i *ngIf="rom.status === trackStatusEnum.Queued" class="fa-solid fa-clock has-text-info" title="Queued"></i>
+            {{ rom.name ?? rom.url }}
+          </p>
+          <div class="tags">
+            <span *ngIf="systemName; else noSystem" class="tag is-info is-light"
+                  [title]="rom.systemManual ? 'Set manually' : 'Detected automatically'">
+              <i class="fa-solid fa-gamepad"></i>&nbsp;{{ systemName }}
+            </span>
+            <ng-template #noSystem>
+              <span *ngIf="rom.status === trackStatusEnum.Completed" class="tag is-warning is-light">
+                <i class="fa-solid fa-circle-question"></i>&nbsp;System unknown
+              </span>
+            </ng-template>
+            <span *ngIf="rom.relativePath" class="tag is-light" title="Location in download folder">
+              <i class="fa-solid fa-folder"></i>&nbsp;{{ rom.relativePath }}
+            </span>
+          </div>
+        </div>
         <div class="subtitle is-6">
 
           <div class="dropdown is-hoverable is-right">
             <div class="dropdown-trigger">
-              <button class="button is-white" aria-haspopup="true" aria-controls="dropdown-menu4">
+              <button class="button is-white" aria-haspopup="true">
                 <span class="icon is-small"><i class="fa-solid fa-bars"></i></span>
               </button>
             </div>
-            <div class="dropdown-menu" id="dropdown-menu4" role="menu">
+            <div class="dropdown-menu" role="menu">
               <div class="dropdown-content">
-                <a *ngIf="rom.url" [href]="rom.url" target="_blank" class="dropdown-item"><i class="fa-solid fa-link"></i> Original link</a>
+                <a *ngIf="rom.url" [href]="rom.url" target="_blank" rel="noopener" class="dropdown-item"><i class="fa-solid fa-link"></i> Original link</a>
                 <a *ngIf="rom.status === trackStatusEnum.Completed" href="api/rom/download/{{rom.id}}" class="dropdown-item" download><i class="fa-solid fa-download"></i> Download file</a>
-                <a href="#" target="_blank" class="dropdown-item" (click)="$event.preventDefault(); retry.emit(this.rom.id)"><i class="fa-solid fa-repeat"></i> Retry job</a>
-                <a href="#" target="_blank" class="dropdown-item has-text-danger" (click)="$event.preventDefault(); remove.emit(this.rom.id)"><i class="fa-solid fa-trash"></i> Remove job</a>
+                <a href="#" class="dropdown-item" (click)="$event.preventDefault(); startEditSystem()"><i class="fa-solid fa-gamepad"></i> Change system</a>
+                <a href="#" class="dropdown-item" (click)="$event.preventDefault(); retry.emit(rom.id)"><i class="fa-solid fa-repeat"></i> Retry job</a>
+                <hr class="dropdown-divider">
+                <a href="#" class="dropdown-item has-text-danger" (click)="$event.preventDefault(); remove.emit({id: rom.id, deleteFile: false})"><i class="fa-solid fa-xmark"></i> Remove from list</a>
+                <a *ngIf="rom.status === trackStatusEnum.Completed" href="#" class="dropdown-item has-text-danger" (click)="$event.preventDefault(); remove.emit({id: rom.id, deleteFile: true})"><i class="fa-solid fa-trash"></i> Remove and delete file</a>
               </div>
             </div>
           </div>
@@ -29,6 +48,19 @@
     </div>
 
     <div class="content">
+      <div *ngIf="editingSystem" class="field has-addons">
+        <div class="control is-expanded">
+          <div class="select is-small is-fullwidth">
+            <select [(ngModel)]="selectedSystem">
+              <option value="" disabled>Select system…</option>
+              <option *ngFor="let system of romService.systems$ | async" [value]="system.slug">{{ system.name }} ({{ system.folder }})</option>
+            </select>
+          </div>
+        </div>
+        <div class="control"><button class="button is-small is-info" (click)="saveSystem()" [disabled]="!selectedSystem">Save</button></div>
+        <div class="control"><button class="button is-small" (click)="editingSystem = false">Cancel</button></div>
+      </div>
+
       <ng-container *ngIf="rom.status === trackStatusEnum.Downloading || rom.status === trackStatusEnum.Completed">
         {{ (rom.receivedBytes || 0) | filesize }} / {{ (rom.totalBytes || 0) | filesize }}
         <progress class="progress"
@@ -38,12 +70,12 @@
           {{ percentage }}%
         </progress>
       </ng-container>
-    <ng-container *ngIf="rom.status === trackStatusEnum.Error">
-      <div class="notification is-danger">
-        <i class="fa-solid fa-circle-exclamation">  </i>
-        Error: {{rom.error}}
-      </div>
-    </ng-container>
+      <ng-container *ngIf="rom.status === trackStatusEnum.Error">
+        <div class="notification is-danger">
+          <i class="fa-solid fa-circle-exclamation"></i>
+          Error: {{ rom.error }}
+        </div>
+      </ng-container>
     </div>
   </div>
 </div>

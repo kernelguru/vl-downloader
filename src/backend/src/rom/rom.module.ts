@@ -6,6 +6,7 @@ import {RomConsumer} from "./rom.consumer";
 import {RomEntity} from "./rom.entity";
 import {TypeOrmModule} from "@nestjs/typeorm";
 import {SharedModule} from "../shared/shared.module";
+import {LibraryController} from "../library/library.controller";
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import {SharedModule} from "../shared/shared.module";
   ],
   controllers: [
       RomController,
+      LibraryController,
   ],
   providers: [RomService, RomConsumer]
 })

@@ -5,6 +5,7 @@ import {
     Get,
     NotFoundException,
     Param,
+    Patch,
     ParseBoolPipe,
     ParseIntPipe,
     Post,
@@ -14,14 +15,12 @@ import {
 } from '@nestjs/common';
 import {RomService} from "./rom.service";
 import {RomEntity} from "./rom.entity";
-import {UtilsService} from "../shared/services/utils.service";
-import {createReadStream, existsSync, statSync} from 'fs';
+import {createReadStream, statSync} from 'fs';
 import type {Response} from 'express';
 
 @Controller('rom')
 export class RomController {
-    constructor(private readonly romService: RomService,
-                private readonly utilsService: UtilsService) {}
+    constructor(private readonly romService: RomService) {}
 
     @Get()
     getAll(): Promise<RomEntity[]> {
@@ -43,8 +42,14 @@ export class RomController {
     }
 
     @Post()
-    processUrl(@Body() body: { url: string }): Promise<void> {
-        return this.romService.create(body?.url);
+    processUrl(@Body() body: { url: string; system?: string }): Promise<void> {
+        return this.romService.create(body?.url, body?.system);
+    }
+
+    /** Set the system manually; a finished file is moved into the matching folder. */
+    @Patch(':id/system')
+    setSystem(@Param('id', ParseIntPipe) id: number, @Body() body: { system: string }): Promise<RomEntity> {
+        return this.romService.setSystem(id, body?.system);
     }
 
     @Get('download/:id')
@@ -53,8 +58,8 @@ export class RomController {
         @Param('id', ParseIntPipe) id: number,
     ): Promise<StreamableFile> {
         const rom = await this.romService.getOrFail(id);
-        const path = rom.fileName && this.utilsService.getDownloadFolderPath(rom.fileName);
-        if (!path || !existsSync(path)) {
+        const path = this.romService.filePath(rom);
+        if (!path) {
             throw new NotFoundException('File not found on disk');
         }
         const asciiName = rom.fileName.replace(/[^\x20-\x7e]|"/g, '_');

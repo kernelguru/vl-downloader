@@ -9,7 +9,7 @@ import {
 } from '@ngneat/elf-entities';
 import {HttpClient} from '@angular/common/http';
 import {Socket} from 'ngx-socket-io';
-import {take} from 'rxjs';
+import {BehaviorSubject, Observable, take} from 'rxjs';
 
 export enum TrackStatusEnum {
   Queued,
@@ -27,10 +27,39 @@ export interface Rom {
   name?: string;
   fileName?: string;
   error?: string;
+  system?: string | null;
+  systemManual?: boolean;
+  relativePath?: string | null;
+}
+
+export interface SystemOption {
+  slug: string;
+  name: string;
+  folder: string;
+}
+
+export interface OrganizeEntry {
+  file: string;
+  to?: string;
+  system?: string;
+  reason?: string;
+}
+
+export interface OrganizeReport {
+  dryRun: boolean;
+  moved: OrganizeEntry[];
+  skipped: OrganizeEntry[];
+}
+
+export interface RommStatus {
+  enabled: boolean;
+  url?: string;
+  lastScan?: { at: string; ok: boolean; message: string };
 }
 
 const STORE_NAME = 'rom';
 const ENDPOINT = '/api/rom';
+const LIBRARY_ENDPOINT = '/api/library';
 enum WsOperation {
   New = 'new',
   Update = 'update',
@@ -51,6 +80,10 @@ export class RomService {
   finished$ = this.store.pipe(selectManyByPredicate(rom => rom.status === TrackStatusEnum.Completed));
   failed$ = this.store.pipe(selectManyByPredicate(rom => rom.status === TrackStatusEnum.Error));
 
+  readonly systems$ = new BehaviorSubject<SystemOption[]>([]);
+  readonly organizeBySystem$ = new BehaviorSubject<boolean>(true);
+  readonly romm$ = new BehaviorSubject<RommStatus>({enabled: false});
+
   constructor(
     private readonly http: HttpClient,
     private readonly socket: Socket,
@@ -60,14 +93,43 @@ export class RomService {
 
   fetch(): void {
     this.http.get<Rom[]>(ENDPOINT).subscribe((data: Rom[]) => this.store.update(upsertEntities(data)));
+    this.http.get<{ organizeBySystem: boolean; systems: SystemOption[] }>(`${LIBRARY_ENDPOINT}/systems`)
+      .subscribe(({organizeBySystem, systems}) => {
+        this.organizeBySystem$.next(organizeBySystem);
+        this.systems$.next(systems);
+      });
+    this.refreshRomm();
   }
 
-  processUrl(url: string): void {
-    this.http.post(ENDPOINT, {url}).subscribe();
+  processUrl(url: string, system?: string | null): void {
+    this.http.post(ENDPOINT, {url, system: system || undefined}).subscribe();
   }
 
-  delete(id: number): void {
-    this.http.delete(`${ENDPOINT}/${id}`).subscribe();
+  delete(id: number, deleteFile = false): void {
+    this.http.delete(`${ENDPOINT}/${id}`, {params: deleteFile ? {deleteFile: 'true'} : {}}).subscribe();
+  }
+
+  setSystem(id: number, system: string): void {
+    this.http.patch<Rom>(`${ENDPOINT}/${id}/system`, {system})
+      .subscribe(rom => this.store.update(upsertEntities(rom)));
+  }
+
+  organize(dryRun: boolean, online: boolean): Observable<OrganizeReport> {
+    return this.http.post<OrganizeReport>(`${LIBRARY_ENDPOINT}/organize`, null, {
+      params: {dryRun: String(dryRun), online: String(online)},
+    });
+  }
+
+  refreshRomm(): void {
+    this.http.get<RommStatus>(`${LIBRARY_ENDPOINT}/romm`).subscribe(status => this.romm$.next(status));
+  }
+
+  rommScan(): void {
+    this.http.post<RommStatus>(`${LIBRARY_ENDPOINT}/romm/scan`, null).subscribe(status => this.romm$.next(status));
+  }
+
+  systemName(slug?: string | null): string | undefined {
+    return slug ? this.systems$.value.find(s => s.slug === slug)?.name ?? slug : undefined;
   }
 
   retry(id: number): void {
