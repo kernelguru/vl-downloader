@@ -52,6 +52,34 @@ export class RomController {
         return this.romService.setSystem(id, body?.system);
     }
 
+    /** Screenshot of the Vimm page when the download failed (shown inline). */
+    @Get(':id/debug/screenshot')
+    async debugScreenshot(@Res({passthrough: true}) res: Response, @Param('id', ParseIntPipe) id: number): Promise<StreamableFile> {
+        const rom = await this.romService.getOrFail(id);
+        const path = this.romService.debugFilePath(rom, 'png');
+        if (!path) {
+            throw new NotFoundException('No screenshot for this entry');
+        }
+        res.set({'Content-Type': 'image/png', 'Content-Disposition': `inline; filename="${rom.debugFile}.png"`});
+        return new StreamableFile(createReadStream(path));
+    }
+
+    /** HTML of the Vimm page when the download failed (always as download, never rendered here). */
+    @Get(':id/debug/html')
+    async debugHtml(@Res({passthrough: true}) res: Response, @Param('id', ParseIntPipe) id: number): Promise<StreamableFile> {
+        const rom = await this.romService.getOrFail(id);
+        const path = this.romService.debugFilePath(rom, 'html');
+        if (!path) {
+            throw new NotFoundException('No HTML dump for this entry');
+        }
+        res.set({
+            'Content-Type': 'text/plain; charset=utf-8',
+            'X-Content-Type-Options': 'nosniff',
+            'Content-Disposition': `attachment; filename="${rom.debugFile}.html"`,
+        });
+        return new StreamableFile(createReadStream(path));
+    }
+
     @Get('download/:id')
     async getFile(
         @Res({passthrough: true}) res: Response,
@@ -61,6 +89,9 @@ export class RomController {
         const path = this.romService.filePath(rom);
         if (!path) {
             throw new NotFoundException('File not found on disk');
+        }
+        if (statSync(path).isDirectory()) {
+            throw new NotFoundException('This game is a folder with several files – get it from the share');
         }
         const asciiName = rom.fileName.replace(/[^\x20-\x7e]|"/g, '_');
         res.set({

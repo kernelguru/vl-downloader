@@ -4,6 +4,7 @@ import {basename, dirname, extname, join, relative, resolve, sep} from 'path';
 import {UtilsService} from '../shared/services/utils.service';
 import {findSystemByExtension, findSystemBySlug, SystemInfo, SYSTEMS} from './systems';
 import {listZipEntries} from './zip';
+import {DISC_EXTENSIONS, detectDiscImage} from './disc';
 
 /**
  * Knows where files go inside the download folder.
@@ -76,7 +77,7 @@ export class LibraryService {
             return direct;
         }
         if (extname(absPath).toLowerCase() !== '.zip') {
-            return undefined;
+            return detectDiscImage(absPath);
         }
         const counts = new Map<SystemInfo, number>();
         for (const entry of listZipEntries(absPath)) {
@@ -84,6 +85,35 @@ export class LibraryService {
             system && counts.set(system, (counts.get(system) ?? 0) + 1);
         }
         return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    }
+
+    /**
+     * Detect the system of an extracted game (one or more files):
+     * 1. file extensions (majority), 2. .gdi = Dreamcast, 3. content of the largest disc image.
+     */
+    detectFromFiles(paths: string[]): SystemInfo | undefined {
+        const counts = new Map<SystemInfo, number>();
+        for (const path of paths) {
+            const system = findSystemByExtension(basename(path));
+            system && counts.set(system, (counts.get(system) ?? 0) + 1);
+        }
+        const byExtension = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+        if (byExtension) {
+            return byExtension;
+        }
+        if (paths.some(p => extname(p).toLowerCase() === '.gdi')) {
+            return findSystemBySlug('dc');
+        }
+        const discs = paths
+            .filter(p => DISC_EXTENSIONS.includes(extname(p).slice(1).toLowerCase()))
+            .sort((a, b) => fs.statSync(b).size - fs.statSync(a).size);
+        for (const disc of discs.slice(0, 2)) {
+            const system = detectDiscImage(disc);
+            if (system) {
+                return system;
+            }
+        }
+        return undefined;
     }
 
     /** Move a file into `destDir` without overwriting anything. Returns the new absolute path. */
@@ -96,7 +126,7 @@ export class LibraryService {
         const stem = basename(srcAbs, ext);
         let dest = join(destDir, basename(srcAbs));
         for (let i = 1; fs.existsSync(dest); i++) {
-            dest = join(destDir, `${stem} (${i})${ext}`);
+            dest = join(destDir, fs.statSync(srcAbs).isDirectory() ? `${basename(srcAbs)} (${i})` : `${stem} (${i})${ext}`);
         }
         try {
             fs.renameSync(srcAbs, dest);
@@ -104,8 +134,9 @@ export class LibraryService {
             if (e?.code !== 'EXDEV') {
                 throw e;
             }
-            fs.copyFileSync(srcAbs, dest);
-            fs.unlinkSync(srcAbs);
+            // different file systems (e.g. inbox and RomM library on other shares)
+            fs.cpSync(srcAbs, dest, {recursive: true});
+            fs.rmSync(srcAbs, {recursive: true, force: true});
         }
         this.logger.log(`Moved ${this.toRelative(srcAbs)} -> ${this.toRelative(dest)}`);
         return dest;

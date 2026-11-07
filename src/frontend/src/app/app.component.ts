@@ -4,12 +4,13 @@ import {FormControl, FormsModule, ReactiveFormsModule, Validators} from '@angula
 import {Observable} from 'rxjs';
 import {CommonModule} from '@angular/common';
 import {RomComponent} from './rom/rom.component';
+import {SafeUrlPipe} from './safe-url.pipe';
 
 const REGEXP_URL = /^https:\/\/vimm\.net\/vault\/\d+\/?$/;
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, ReactiveFormsModule, RomComponent],
+  imports: [CommonModule, FormsModule, ReactiveFormsModule, RomComponent, SafeUrlPipe],
   templateUrl: './app.component.html',
   standalone: true,
   styleUrl: './app.component.scss'
@@ -19,6 +20,9 @@ export class AppComponent {
   form = new FormControl('', {validators: [Validators.required, Validators.pattern(REGEXP_URL)]});
   system = new FormControl<string>('', {nonNullable: true});
   all$: Observable<Rom[]>;
+
+  browserOpen = false;
+  readonly browserUrl = 'browser/vnc.html?autoconnect=true&reconnect=true&resize=scale&show_dot=true&path=browser/websockify';
 
   organizeOnline = false;
   organizeBusy = false;
@@ -63,6 +67,11 @@ export class AppComponent {
         this.organizeBusy = false;
       },
     });
+  }
+
+  toggleBrowser(): void {
+    this.browserOpen = !this.browserOpen;
+    this.romService.refreshBrowser();
   }
 
   trackByFn(_: number, item: Rom): number {

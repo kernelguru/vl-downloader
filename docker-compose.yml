@@ -36,6 +36,13 @@ services:
       # Seconds to wait after the last download before RomM scans
       # ROMM_SCAN_DELAY: 30
 
+      # --- Built-in browser (Firefox in the web UI) ---------------------
+      # Downloads made in it land in the inbox, get extracted and sorted.
+      # BROWSER_ENABLED: "true"
+      # BROWSER_RESOLUTION: 1280x900
+      # EXTRACT_ARCHIVES: "true"
+      # DELETE_ARCHIVES: "true"
+
       # --- External Redis (optional) ---------------------------------------
       # Not needed: the container starts its own redis-server. The queue is
       # rebuilt from the database on start, so Redis needs no persistence.
@@ -50,4 +57,5 @@ services:
     volumes:
       - ./downloads:/vl-downloader/backend/downloads
       - ./config:/vl-downloader/backend/config
-    shm_size: "512mb"
+      - ./inbox:/vl-downloader/backend/inbox
+    shm_size: "1gb"

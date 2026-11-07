@@ -7,7 +7,8 @@ import {In, Repository} from "typeorm";
 import {WebSocketGateway, WebSocketServer} from "@nestjs/websockets";
 import {Server} from 'socket.io';
 import {EventEmitter2} from "@nestjs/event-emitter";
-import {DownloadCanceledError, DownloadService} from "../shared/services/download.service";
+import {DownloadCanceledError, DownloadPageError, DownloadService} from "../shared/services/download.service";
+import {UtilsService} from "../shared/services/utils.service";
 import {LibraryService} from "../library/library.service";
 import {RommService} from "../library/romm.service";
 import {findSystemBySlug, SystemInfo} from "../library/systems";
@@ -24,6 +25,12 @@ enum WsOperation {
 const ROM_URL_REGEXP = /^https:\/\/vimm\.net\/vault\/\d+\/?$/;
 /** Pause between page visits when sorting old downloads, to stay gentle with Vimm's Lair. */
 const ONLINE_DETECTION_DELAY_MS = 5000;
+
+export interface QueueStatus {
+    paused: boolean;
+    reason?: string;
+    since?: string;
+}
 
 export interface OrganizeEntry {
     file: string;
@@ -44,6 +51,7 @@ export class RomService implements OnApplicationBootstrap {
     @WebSocketServer() io: Server;
     private readonly logger = new Logger(RomService.name);
     private organizing = false;
+    private queueStatus: QueueStatus = {paused: false};
 
     constructor(
         @InjectRepository(RomEntity) private repository: Repository<RomEntity>,
@@ -52,6 +60,7 @@ export class RomService implements OnApplicationBootstrap {
         private readonly downloadService: DownloadService,
         private readonly library: LibraryService,
         private readonly romm: RommService,
+        private readonly utils: UtilsService,
     ) {}
 
     /**
@@ -59,16 +68,21 @@ export class RomService implements OnApplicationBootstrap {
      * DB still lists them. Re-enqueue everything that was queued or interrupted mid-download.
      */
     async onApplicationBootstrap(): Promise<void> {
+        await this.downloadQueue.resume().catch(() => undefined);
         const pending = await this.repository.find({
             where: {status: In([TrackStatusEnum.Queued, TrackStatusEnum.Downloading])},
             order: {id: 'ASC'},
         });
         for (const rom of pending) {
+            if (rom.source === 'inbox') {
+                await this.repository.update(rom.id, {status: TrackStatusEnum.Error, error: 'Interrupted by a restart – use retry'});
+                continue;
+            }
             await this.repository.update(rom.id, {status: TrackStatusEnum.Queued, receivedBytes: 0, error: null});
             await this.enqueue(rom.id);
         }
         if (pending.length) {
-            this.logger.log(`Re-queued ${pending.length} unfinished download(s)`);
+            this.logger.log(`Found ${pending.length} unfinished entr(y/ies) after restart`);
         }
     }
 
@@ -101,6 +115,7 @@ export class RomService implements OnApplicationBootstrap {
         this.eventEmitter.emit(this.getEventName(id));
         await this.downloadQueue.remove(this.getJobId(id)).catch(() => undefined);
         await this.repository.delete(id);
+        this.deleteDebugFiles(rom);
         if (deleteFile) {
             const path = this.filePath(rom);
             try {
@@ -114,6 +129,12 @@ export class RomService implements OnApplicationBootstrap {
 
     async retry(id: number): Promise<void> {
         const rom = await this.getOrFail(id);
+        if (rom.source === 'inbox') {
+            // file is still in the inbox (processing failed): let the inbox pick it up again
+            await this.remove(rom.id);
+            this.eventEmitter.emit('inbox.retry', rom.sourceFile ?? '');
+            return;
+        }
         await this.remove(rom.id);
         await this.create(rom.url, rom.systemManual ? rom.system : undefined);
     }
@@ -132,6 +153,21 @@ export class RomService implements OnApplicationBootstrap {
         });
         await this.enqueue(savedRom.id);
         this.io.emit(WsOperation.New, savedRom);
+    }
+
+    /** Entry for a file that arrived in the inbox (built-in browser). */
+    async createInboxEntry(name: string, sourceFile: string, size: number): Promise<RomEntity> {
+        const saved = await this.repository.save({
+            url: '',
+            name,
+            source: 'inbox',
+            sourceFile,
+            status: TrackStatusEnum.Downloading,
+            totalBytes: size,
+            receivedBytes: 0,
+        });
+        this.io.emit(WsOperation.New, saved);
+        return saved;
     }
 
     /** Change the system of an entry; a finished download is moved to the matching folder. */
@@ -170,7 +206,8 @@ export class RomService implements OnApplicationBootstrap {
         if (!rom) {
             return; // removed while waiting in the queue
         }
-        await this.updatePartial(id, {status: TrackStatusEnum.Downloading, error: null, receivedBytes: 0});
+        this.deleteDebugFiles(rom);
+        await this.updatePartial(id, {status: TrackStatusEnum.Downloading, error: null, receivedBytes: 0, debugFile: null});
         try {
             const manual = rom.systemManual ? findSystemBySlug(rom.system) : undefined;
             const result = await this.downloadService.download(
@@ -206,7 +243,55 @@ export class RomService implements OnApplicationBootstrap {
                 return;
             }
             this.logger.error(`Download of rom ${id} failed: ${error}`);
-            await this.updatePartial(id, {error: error instanceof Error ? error.message : String(error), status: TrackStatusEnum.Error});
+            await this.updatePartial(id, {
+                error: error instanceof Error ? error.message : String(error),
+                status: TrackStatusEnum.Error,
+                debugFile: error instanceof DownloadPageError ? error.debugFile ?? null : null,
+            });
+            if (error instanceof DownloadPageError && error.problem === 'bot-protection') {
+                // Every further job would hit the same wall – stop until the user resumes.
+                await this.pauseQueue('Vimm\'s Lair shows a bot protection (Cloudflare) page');
+            }
+        }
+    }
+
+    getQueueStatus(): QueueStatus {
+        return this.queueStatus;
+    }
+
+    async pauseQueue(reason: string): Promise<QueueStatus> {
+        await this.downloadQueue.pause();
+        this.queueStatus = {paused: true, reason, since: new Date().toISOString()};
+        this.logger.warn(`Queue paused: ${reason}`);
+        this.io.emit('queue', this.queueStatus);
+        return this.queueStatus;
+    }
+
+    async resumeQueue(): Promise<QueueStatus> {
+        await this.downloadQueue.resume();
+        this.queueStatus = {paused: false};
+        this.logger.log('Queue resumed');
+        this.io.emit('queue', this.queueStatus);
+        return this.queueStatus;
+    }
+
+    /** Absolute path of a page dump (png/html) of a failed download, if it exists. */
+    debugFilePath(rom: RomEntity, ext: 'png' | 'html'): string | undefined {
+        if (!rom.debugFile) {
+            return undefined;
+        }
+        const path = this.utils.getDebugFolderPath(`${rom.debugFile}.${ext}`);
+        return fs.existsSync(path) ? path : undefined;
+    }
+
+    private deleteDebugFiles(rom: RomEntity): void {
+        for (const ext of ['png', 'html'] as const) {
+            const path = this.debugFilePath(rom, ext);
+            try {
+                path && fs.unlinkSync(path);
+            } catch {
+                // ignore
+            }
         }
     }
 
