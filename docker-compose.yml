@@ -1,0 +1,59 @@
+# VL Downloader + Redis.
+# Adjust the paths on the left side of the volumes, then: docker compose up -d
+#
+# RomM: point the downloads volume at RomM's roms folder, e.g. for structure A
+#   /mnt/user/appdata/romm/library/roms:/vl-downloader/backend/downloads
+# so every ROM lands in <library>/roms/<platform>/ and RomM picks it up.
+
+services:
+  vl-downloader:
+    build: .
+    image: kernelguru/vl-downloader:latest
+    container_name: vl-downloader
+    restart: unless-stopped
+    depends_on:
+      - redis
+    # Unraid default (nobody:users). Remove to run as root.
+    user: "99:100"
+    ports:
+      - "3000:3000"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      EMBEDDED_REDIS: "false"
+      TZ: Europe/Berlin
+
+      # --- Folders ---------------------------------------------------------
+      ORGANIZE_BY_SYSTEM: "true"
+      # "{system}" = RomM structure A (mount <library>/roms),
+      # "{system}/roms" = RomM structure B (mount <library>)
+      FOLDER_LAYOUT: "{system}"
+      # Optional own folder names, e.g. "psx=ps,genesis=megadrive"
+      # SYSTEM_FOLDERS: ""
+
+      # --- RomM (optional) -------------------------------------------------
+      # ROMM_URL: http://192.168.1.10:8080
+      # Client API token with scope "tasks.run" …
+      # ROMM_API_TOKEN: rmm_xxxxxxxx
+      # … or a RomM user
+      # ROMM_USERNAME: admin
+      # ROMM_PASSWORD: secret
+      # Seconds to wait after the last download before RomM scans
+      # ROMM_SCAN_DELAY: 30
+
+      # --- Timeouts in seconds (optional) ----------------------------------
+      # PAGE_TIMEOUT: 60
+      # DOWNLOAD_START_TIMEOUT: 90
+      # DOWNLOAD_STALL_TIMEOUT: 180
+    volumes:
+      - ./downloads:/vl-downloader/backend/downloads
+      - ./config:/vl-downloader/backend/config
+    shm_size: "512mb"
+
+  redis:
+    image: redis:7-alpine
+    container_name: vl-downloader-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "no"]
+    volumes:
+      - ./redis:/data
