@@ -57,7 +57,12 @@ The image contains a Firefox running on the server (Xvfb + x11vnc + noVNC). Open
 **Open browser** in the web UI – also from a phone – browse Vimm's Lair and download as usual.
 You use the site yourself (including any "are you human" check); only the file transfer happens on the server.
 
-The remote screen adapts to the size of the device (noVNC `resize=remote` with TigerVNC).
+**Live view** (phone friendly, default): a live picture of the server's Firefox, ~4 frames per second.
+Tap = click, long press = move the mouse (hover menus), pinch or +/- to zoom, buttons for scrolling,
+back, reload, arrow keys, Enter, Esc, Tab and a text field for typing. Open dropdowns appear in the picture
+and are chosen by tapping (or with the arrow keys + Enter).
+
+**Desktop mode**: noVNC for a PC or tablet; the remote screen adapts to the window (TigerVNC `resize=remote`).
 
 ### iPhone: "Open on NAS" from Safari
 Find the game in Safari as usual, then send the page to the NAS browser with a shortcut:
@@ -66,7 +71,7 @@ Find the game in Safari as usual, then send the page to the NAS browser with a s
 3. Action **Text**: `http://<nas>:3000/api/library/browser/open?url=` followed by *URL Encoded Text*.
 4. Action **Open URLs** with that text.
 
-Share → *Open on NAS* opens the page in the server's Firefox and shows it full screen: confirm the check,
+Share → *Open on NAS* opens the page in the server's Firefox and shows the live view: confirm the check,
 tap Download. The same instructions with your server address are in the web UI.
 Only `https://vimm.net/…` pages can be opened this way.
 

@@ -1,0 +1,73 @@
+<div class="live">
+  <div class="live-top">
+    <button class="button is-small is-dark" (click)="closed.emit()" title="Close">
+      <i class="fa-solid fa-xmark"></i>
+    </button>
+    <span class="live-status">
+      <span class="dot" [class.ok]="!error && fps > 0"></span>
+      {{ error ?? (fps + ' fps') }}
+    </span>
+    <div class="buttons has-addons mb-0">
+      <button class="button is-small is-dark" (click)="zoomOut()" [disabled]="zoomIndex === 0" title="Zoom out">
+        <i class="fa-solid fa-magnifying-glass-minus"></i>
+      </button>
+      <button class="button is-small is-dark" disabled>{{ zoom * 100 }}%</button>
+      <button class="button is-small is-dark" (click)="zoomIn()" [disabled]="zoomIndex === 3" title="Zoom in">
+        <i class="fa-solid fa-magnifying-glass-plus"></i>
+      </button>
+    </div>
+    <a class="button is-small is-dark" href="browser/vnc.html?autoconnect=true&reconnect=true&resize=scale&path=browser/websockify"
+       target="_blank" rel="noopener" title="Desktop mode (noVNC)">
+      <i class="fa-solid fa-desktop"></i>
+    </a>
+  </div>
+
+  <div class="live-viewport">
+    <div class="live-canvas" [style.width.%]="zoom * 100">
+      <img #screen
+           [src]="src ?? ''"
+           [class.hidden]="!src"
+           alt="Browser on the server"
+           draggable="false"
+           (click)="onTap($event)"
+           (dblclick)="onDoubleTap($event)"
+           (touchstart)="onTouchStart($event)"
+           (touchmove)="onTouchMove($event)"
+           (touchend)="onTouchEnd()"
+           (touchcancel)="onTouchEnd()"
+           (wheel)="onWheel($event)"
+           (contextmenu)="$event.preventDefault()">
+      <span *ngIf="marker" class="marker" [class.move]="marker.kind === 'move'"
+            [style.left.px]="marker.x" [style.top.px]="marker.y"></span>
+      <p *ngIf="!src" class="live-loading">Connecting to the browser…</p>
+    </div>
+  </div>
+
+  <div class="live-bottom">
+    <div class="live-row">
+      <button class="button is-dark" (click)="scroll(-5)" title="Scroll up"><i class="fa-solid fa-angles-up"></i></button>
+      <button class="button is-dark" (click)="scroll(5)" title="Scroll down"><i class="fa-solid fa-angles-down"></i></button>
+      <button class="button is-dark" (click)="nav('back')" title="Back"><i class="fa-solid fa-arrow-left"></i></button>
+      <button class="button is-dark" (click)="nav('reload')" title="Reload"><i class="fa-solid fa-rotate-right"></i></button>
+      <button class="button is-dark" (click)="key('Up')" title="Arrow up"><i class="fa-solid fa-caret-up"></i></button>
+      <button class="button is-dark" (click)="key('Down')" title="Arrow down"><i class="fa-solid fa-caret-down"></i></button>
+      <button class="button is-dark" (click)="key('Return')" title="Enter"><i class="fa-solid fa-turn-down fa-rotate-90"></i></button>
+      <button class="button is-dark" (click)="key('Escape')" title="Escape">Esc</button>
+      <button class="button is-dark" (click)="key('Tab')" title="Tab"><i class="fa-solid fa-right-long"></i></button>
+    </div>
+    <div class="field has-addons live-row">
+      <div class="control is-expanded">
+        <input class="input" type="text" placeholder="Type text into the focused field…" [(ngModel)]="text"
+               autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"
+               (keyup.enter)="sendText()">
+      </div>
+      <div class="control">
+        <button class="button is-danger" (click)="sendText()" [disabled]="!text"><i class="fa-solid fa-keyboard"></i></button>
+      </div>
+      <div class="control">
+        <button class="button is-dark" (click)="key('BackSpace')" title="Backspace"><i class="fa-solid fa-delete-left"></i></button>
+      </div>
+    </div>
+    <p class="live-hint">Tap = click · long press = hover · pinch or +/- to zoom</p>
+  </div>
+</div>
