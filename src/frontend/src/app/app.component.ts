@@ -5,12 +5,13 @@ import {Observable} from 'rxjs';
 import {CommonModule} from '@angular/common';
 import {RomComponent} from './rom/rom.component';
 import {SafeUrlPipe} from './safe-url.pipe';
+import {LiveViewComponent} from './live-view/live-view.component';
 
 const REGEXP_URL = /^https:\/\/vimm\.net\/vault\/\d+\/?$/;
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, ReactiveFormsModule, RomComponent, SafeUrlPipe],
+  imports: [CommonModule, FormsModule, ReactiveFormsModule, RomComponent, SafeUrlPipe, LiveViewComponent],
   templateUrl: './app.component.html',
   standalone: true,
   styleUrl: './app.component.scss'
@@ -22,6 +23,8 @@ export class AppComponent {
   all$: Observable<Rom[]>;
 
   browserOpen = false;
+  /** Full-screen live view (phone friendly); also opened by "Open on NAS" via ?live=1 */
+  liveOpen = false;
   readonly browserUrl = 'browser/vnc.html?autoconnect=true&reconnect=true&resize=remote&show_dot=true&path=browser/websockify';
   /** Template for the iOS shortcut: …/browser/open?url=<page> */
   readonly openOnNasUrl = `${location.origin}/api/library/browser/open?url=`;
@@ -37,6 +40,11 @@ export class AppComponent {
   constructor(readonly romService: RomService) {
     this.romService.fetch();
     this.all$ = this.romService.all$;
+    const params = new URLSearchParams(location.search);
+    if (params.get('live') === '1') {
+      this.liveOpen = true;
+      history.replaceState(null, '', location.pathname);
+    }
   }
 
   processUrl(): void {
@@ -81,7 +89,7 @@ export class AppComponent {
     this.romService.openInBrowser(url).subscribe({
       next: () => {
         this.openUrl.reset();
-        this.browserOpen = true;
+        this.liveOpen = true;
       },
       error: err => (this.openError = err?.error?.message ?? 'Could not open the page'),
     });

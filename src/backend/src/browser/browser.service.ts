@@ -3,6 +3,7 @@ import {ChildProcess, spawn, spawnSync} from 'child_process';
 import * as fs from 'fs';
 import {join} from 'path';
 import {UtilsService} from '../shared/services/utils.service';
+import {Frame, ScreenGrabber} from './screen';
 
 export const NOVNC_PORT = Number(process.env.BROWSER_NOVNC_PORT) || 6080;
 const VNC_PORT = Number(process.env.BROWSER_VNC_PORT) || 5900;
@@ -13,8 +14,22 @@ const START_URL = process.env.BROWSER_START_URL || 'https://vimm.net/vault';
 /** Only Vimm's Lair pages can be opened from outside (share sheet / API). */
 export const OPEN_URL_REGEXP = /^https:\/\/(www\.)?vimm\.net(\/[^\s]*)?$/i;
 
-/** noVNC page in full-screen mode, resizing the remote screen to the device. */
+/** noVNC page in full-screen mode, resizing the remote screen to the device (desktop mode). */
 export const NOVNC_CLIENT_URL = '/browser/vnc.html?autoconnect=true&reconnect=true&resize=remote&show_dot=true&path=browser/websockify';
+
+/** Live view of the web UI (phone friendly). */
+export const LIVE_VIEW_URL = '/?live=1';
+
+export type BrowserInput =
+    | { action: 'click' | 'move' | 'doubleclick'; x: number; y: number }
+    | { action: 'scroll'; dy: number; x?: number; y?: number }
+    | { action: 'key'; key: string }
+    | { action: 'type'; text: string }
+    | { action: 'back' | 'forward' | 'reload' };
+
+/** Keys the live view may send (xdotool names). */
+const ALLOWED_KEYS = new Set(['Up', 'Down', 'Left', 'Right', 'Return', 'Escape', 'Tab', 'shift+Tab', 'BackSpace',
+    'Delete', 'space', 'Page_Up', 'Page_Down', 'Home', 'End', 'ctrl+a', 'ctrl+l', 'ctrl+f', 'F5']);
 
 export interface BrowserStatus {
     enabled: boolean;
@@ -55,6 +70,7 @@ export class BrowserService implements OnApplicationBootstrap, OnModuleDestroy {
     private lastGeometry = '';
     /** URL Firefox is (re)started with when it is not running yet */
     private nextUrl = START_URL;
+    private readonly grabber = new ScreenGrabber(DISPLAY, Number(process.env.LIVE_VIEW_QUALITY) || 60);
 
     constructor(private readonly utils: UtilsService) {}
 
@@ -154,6 +170,78 @@ export class BrowserService implements OnApplicationBootstrap, OnModuleDestroy {
         }
         this.logger.log(`Opened ${trimmed} in the browser`);
         return this.status();
+    }
+
+    /** Current screen as JPEG for the live view. */
+    frame(): Promise<Frame> {
+        if (!this.enabled || !this.processes.length) {
+            throw new BadRequestException(this.message || 'Browser is not enabled');
+        }
+        return this.grabber.frame();
+    }
+
+    /** Mouse / keyboard input from the live view, executed with xdotool on the virtual display. */
+    async input(input: BrowserInput): Promise<void> {
+        if (!this.enabled || !this.processes.length) {
+            throw new BadRequestException(this.message || 'Browser is not enabled');
+        }
+        const coord = (v: unknown) => {
+            const n = Math.round(Number(v));
+            if (!Number.isFinite(n) || n < 0 || n > 10000) {
+                throw new BadRequestException('Invalid coordinates');
+            }
+            return String(n);
+        };
+        let args: string[];
+        switch (input?.action) {
+            case 'click':
+                args = ['mousemove', coord(input.x), coord(input.y), 'click', '1'];
+                break;
+            case 'doubleclick':
+                args = ['mousemove', coord(input.x), coord(input.y), 'click', '--repeat', '2', '--delay', '80', '1'];
+                break;
+            case 'move':
+                args = ['mousemove', coord(input.x), coord(input.y)];
+                break;
+            case 'scroll': {
+                const steps = Math.max(-30, Math.min(30, Math.round(Number(input.dy) || 0)));
+                if (!steps) {
+                    return;
+                }
+                const position = input.x !== undefined && input.y !== undefined
+                    ? ['mousemove', coord(input.x), coord(input.y)] : [];
+                args = [...position, 'click', '--repeat', String(Math.abs(steps)), '--delay', '15', steps > 0 ? '5' : '4'];
+                break;
+            }
+            case 'key':
+                if (!ALLOWED_KEYS.has(input.key)) {
+                    throw new BadRequestException(`Key not allowed: ${input.key}`);
+                }
+                args = ['key', '--clearmodifiers', input.key];
+                break;
+            case 'type': {
+                const text = String(input.text ?? '');
+                if (!text || text.length > 500) {
+                    throw new BadRequestException('Text must be 1–500 characters');
+                }
+                args = ['type', '--clearmodifiers', '--delay', '8', '--', text];
+                break;
+            }
+            case 'back':
+                args = ['key', '--clearmodifiers', 'alt+Left'];
+                break;
+            case 'forward':
+                args = ['key', '--clearmodifiers', 'alt+Right'];
+                break;
+            case 'reload':
+                args = ['key', '--clearmodifiers', 'F5'];
+                break;
+            default:
+                throw new BadRequestException('Unknown action');
+        }
+        if (!await this.xdotool(args)) {
+            throw new BadRequestException('Input failed');
+        }
     }
 
     /** Restart Firefox (e.g. after the user closed its window or it hangs). */

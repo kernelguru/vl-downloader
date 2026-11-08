@@ -15,10 +15,13 @@
         <div class="is-flex is-justify-content-space-between is-align-items-center is-flex-wrap-wrap" style="gap: .5rem">
           <p class="subtitle mb-0"><i class="fa-brands fa-firefox-browser"></i>&nbsp;Browser</p>
           <div class="buttons mb-0">
-            <button class="button is-danger" (click)="toggleBrowser()" [disabled]="!browser.running">
-              <i class="fa-solid" [ngClass]="browserOpen ? 'fa-eye-slash' : 'fa-display'"></i>&nbsp;{{ browserOpen ? 'Hide' : 'Open browser' }}
+            <button class="button is-danger" (click)="liveOpen = true" [disabled]="!browser.running">
+              <i class="fa-solid fa-mobile-screen"></i>&nbsp;Live view
             </button>
-            <a class="button is-light" [href]="browserUrl" target="_blank" rel="noopener" title="Full screen in a new tab">
+            <button class="button is-light" (click)="toggleBrowser()" [disabled]="!browser.running" title="Desktop mode (noVNC) inside this page">
+              <i class="fa-solid" [ngClass]="browserOpen ? 'fa-eye-slash' : 'fa-desktop'"></i>
+            </button>
+            <a class="button is-light" [href]="browserUrl" target="_blank" rel="noopener" title="Desktop mode (noVNC) full screen">
               <i class="fa-solid fa-up-right-from-square"></i>
             </a>
             <button class="button is-light" (click)="romService.restartBrowser()" title="Restart Firefox">
@@ -56,8 +59,8 @@
             <li>Action <strong>Text</strong>: <code>{{ openOnNasUrl }}</code> followed by the variable <em>URL Encoded Text</em>.</li>
             <li>Action <strong>Open URLs</strong> → input: the <em>Text</em>.</li>
           </ol>
-          <p>In Safari on a Vimm page: Share → <em>Open on NAS</em>. The page opens in the NAS browser full screen –
-            confirm the check, tap Download, done.</p>
+          <p>In Safari on a Vimm page: Share → <em>Open on NAS</em>. The page opens in the NAS browser and the live view
+            shows it – confirm the check, tap Download, done.</p>
         </div>
 
         <div class="field is-horizontal mt-3" *ngIf="romService.inbox$ | async as inbox">
@@ -190,3 +193,5 @@
 
   </div>
 </section>
+
+<app-live-view *ngIf="liveOpen" (closed)="liveOpen = false"></app-live-view>

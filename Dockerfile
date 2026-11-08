@@ -47,6 +47,7 @@ RUN apk add --no-cache \
     firefox \
     tigervnc \
     xdotool \
+    xwd \
     websockify
 
 COPY --from=novnc /opt/novnc /opt/novnc

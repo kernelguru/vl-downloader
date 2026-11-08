@@ -1,7 +1,7 @@
-import {Body, Controller, Get, ParseBoolPipe, Post, Query, Res} from '@nestjs/common';
+import {Body, Controller, Get, Headers, HttpCode, ParseBoolPipe, Post, Query, Res} from '@nestjs/common';
 import type {Response} from 'express';
 import {InboxService, InboxStatus} from './inbox.service';
-import {BrowserService, BrowserStatus, NOVNC_CLIENT_URL} from '../browser/browser.service';
+import {BrowserInput, BrowserService, BrowserStatus, LIVE_VIEW_URL} from '../browser/browser.service';
 import {LibraryService} from './library.service';
 import {RommService, RommStatus} from './romm.service';
 import {OrganizeReport, QueueStatus, RomService} from '../rom/rom.service';
@@ -37,12 +37,36 @@ export class LibraryController {
     @Get('browser/open')
     async openInBrowserAndShow(@Query('url') url: string, @Res() res: Response): Promise<void> {
         await this.browser.openUrl(url);
-        res.redirect(302, NOVNC_CLIENT_URL);
+        res.redirect(302, LIVE_VIEW_URL);
     }
 
     @Post('browser/open')
     openInBrowser(@Body() body: { url: string }): Promise<BrowserStatus> {
         return this.browser.openUrl(body?.url);
+    }
+
+    /** JPEG of the browser screen; send If-None-Match with the last ETag to get 304 when nothing changed. */
+    @Get('browser/frame')
+    async frame(@Headers('if-none-match') ifNoneMatch: string | undefined, @Res() res: Response): Promise<void> {
+        const frame = await this.browser.frame();
+        res.set({
+            'Cache-Control': 'no-store',
+            'ETag': frame.etag,
+            'X-Screen-Width': String(frame.width),
+            'X-Screen-Height': String(frame.height),
+            'Access-Control-Expose-Headers': 'ETag, X-Screen-Width, X-Screen-Height',
+        });
+        if (ifNoneMatch === frame.etag) {
+            res.status(304).end();
+            return;
+        }
+        res.type('image/jpeg').send(frame.jpeg);
+    }
+
+    @Post('browser/input')
+    @HttpCode(204)
+    async input(@Body() body: BrowserInput): Promise<void> {
+        await this.browser.input(body);
     }
 
     @Post('browser/restart')

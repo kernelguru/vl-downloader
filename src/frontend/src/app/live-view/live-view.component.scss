@@ -1,0 +1,121 @@
+.live {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  background: #111;
+  color: #eee;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.live-top {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .4rem .5rem;
+  background: #1b1b1b;
+
+  .live-status {
+    flex: 1;
+    font-size: .8rem;
+    color: #aaa;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .dot {
+    display: inline-block;
+    width: .55rem;
+    height: .55rem;
+    border-radius: 50%;
+    background: #c33;
+    margin-right: .25rem;
+
+    &.ok {
+      background: #3c6;
+    }
+  }
+}
+
+.live-viewport {
+  flex: 1;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y pinch-zoom;
+}
+
+.live-canvas {
+  position: relative;
+  min-width: 100%;
+
+  img {
+    display: block;
+    width: 100%;
+    height: auto;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+
+    &.hidden {
+      visibility: hidden;
+      height: 50vh;
+    }
+  }
+}
+
+.live-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+}
+
+.marker {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border-radius: 50%;
+  border: 3px solid #f14668;
+  pointer-events: none;
+  animation: ping .6s ease-out forwards;
+
+  &.move {
+    border-color: #3e8ed0;
+  }
+}
+
+@keyframes ping {
+  from { transform: scale(.5); opacity: 1; }
+  to { transform: scale(1.6); opacity: 0; }
+}
+
+.live-bottom {
+  background: #1b1b1b;
+  padding: .4rem .5rem .2rem;
+
+  .live-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .3rem;
+    margin-bottom: .35rem;
+
+    > .button {
+      flex: 1 0 auto;
+      min-width: 2.6rem;
+      min-height: 2.6rem;
+    }
+  }
+
+  .live-hint {
+    font-size: .7rem;
+    color: #777;
+    text-align: center;
+  }
+}
